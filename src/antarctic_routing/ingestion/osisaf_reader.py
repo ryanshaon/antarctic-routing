@@ -3,13 +3,22 @@
 OSI-401-b is distributed on its *own* polar stereographic grid (true scale at
 70S, Hughes 1980 ellipsoid, coordinates in km), not EPSG:3031. The CRS is read
 from the file's CF ``grid_mapping`` metadata, falling back to the documented
-proj4 string. Concentration is in percent, land/lake come from the CF
-flag-coded ``status_flag`` variable, and missing ocean values are filled and
+proj4 string. Concentration is in percent, land/lake come from the
+bit-coded ``status_flag`` variable, and missing ocean values are filled and
 flagged by :func:`preprocessing.harmonize.fill_missing`.
+
+Real files on the MET Norway THREDDS server (checked on 2026-09-15, which
+reports ``product_id = OSI-401-d``, ``product_version = 4.1``) describe the
+``status_flag`` bits only in a free-text ``flag_descriptions`` attribute, e.g.
+``bit 7 (1000000): Land mask``, without CF ``flag_masks``/``flag_meanings``.
+Both layouts are supported. The product id and version stored in each file are
+carried into the dataset provenance, next to the product family (e.g.
+``OSI-401`` for ``OSI-401-d``), so the family and the actual product stay distinct.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -28,6 +37,10 @@ from antarctic_routing.preprocessing.harmonize import fill_missing, normalize_co
 
 OSI_PROJ4 = "+proj=stere +a=6378273 +b=6356889.44891 +lat_0=-90 +lat_ts=-70 +lon_0=0 +units=m +no_defs"
 NON_NAVIGABLE_FLAGS = ("land", "lake")
+DEFAULT_PRODUCT = "OSI-401-b"
+# "bit 6 (100000): Lake mask" -> ("100000", "Lake"); the value in brackets is the bit mask in binary.
+_PRODUCT_FAMILY = re.compile(r"osi-\d+", re.IGNORECASE)
+_DESCRIBED_MASK = re.compile(r"\(([01]+)\)\s*:\s*(\w+)\s+mask", re.IGNORECASE)
 
 
 @dataclass
@@ -40,10 +53,18 @@ class SourceField:
     crs: CRS
     path: Path
     sha256: str
+    product_id: str = DEFAULT_PRODUCT
+    product_version: str = ""
 
     @property
     def date(self) -> date:
         return self.day
+
+
+def product_family(product_id: str) -> str:
+    """``OSI-401-d`` -> ``OSI-401``, ``osi-450-a`` -> ``OSI-450``; unknown ids are returned unchanged."""
+    match = _PRODUCT_FAMILY.match(product_id.strip())
+    return match.group(0).upper() if match else product_id
 
 
 def _crs_of(ds: xr.Dataset, var: xr.DataArray) -> CRS:
@@ -62,7 +83,16 @@ def _flag_mask(flag: xr.DataArray, names: Sequence[str]) -> np.ndarray:
     values = np.asarray(flag.values)
     meanings = str(flag.attrs.get("flag_meanings", "")).split()
     out = np.zeros(values.shape, bool)
-    if "flag_masks" in flag.attrs:
+    if "flag_masks" not in flag.attrs and "flag_values" not in flag.attrs:
+        described = _DESCRIBED_MASK.findall(str(flag.attrs.get("flag_descriptions", "")))
+        if not described:
+            raise ValueError("status_flag has no flag_masks, flag_values or flag_descriptions; "
+                             "cannot identify land")
+        bits = np.nan_to_num(values.astype(float), nan=0.0).astype(np.int64)
+        for mask, meaning in described:
+            if meaning.lower() in names:
+                out |= (bits & int(mask, 2)) != 0
+    elif "flag_masks" in flag.attrs:
         for mask, meaning in zip(np.atleast_1d(flag.attrs["flag_masks"]), meanings, strict=False):
             if meaning in names:
                 out |= (values.astype(np.int64) & int(mask)) != 0
@@ -94,6 +124,8 @@ def read_osisaf(path: str | Path) -> SourceField:
             land = np.zeros(conc.shape, bool)
         x, y = _metres(ds["xc"]), _metres(ds["yc"])
         day = pd.Timestamp(ds["time"].values[0]).date() if "time" in ds.coords else None
+        product_id = str(ds.attrs.get("product_id", DEFAULT_PRODUCT))
+        product_version = str(ds.attrs.get("product_version", ""))
     if day is None:
         raise ValueError(f"{path}: no time coordinate")
     if x[0] > x[-1]:
@@ -101,7 +133,8 @@ def read_osisaf(path: str | Path) -> SourceField:
     if y[0] > y[-1]:
         y, conc, land = y[::-1], conc[::-1], land[::-1]
     conc = np.where(land, np.nan, conc)
-    return SourceField(day, x, y, conc, land, crs, path, sha256_file(path))
+    return SourceField(day, x, y, conc, land, crs, path, sha256_file(path), product_id,
+                       product_version)
 
 
 def regrid_projected(
@@ -143,7 +176,10 @@ def build_sea_ice_dataset(paths: Sequence[str | Path], grid: PolarGrid) -> xr.Da
     )
     ds["ice_concentration"].attrs.update(units="1", long_name="sea ice area fraction")
     ds.attrs.update(
-        source_product="OSI-401-b",
+        source_product=",".join(sorted({f.product_id for f in fields})),
+        source_product_family=",".join(sorted({product_family(f.product_id) for f in fields})),
+        source_product_ids=",".join(f.product_id for f in fields),
+        source_product_versions=",".join(f.product_version for f in fields),
         source_files=",".join(f.path.name for f in fields),
         source_sha256=",".join(f.sha256 for f in fields),
         execution_mode="real",

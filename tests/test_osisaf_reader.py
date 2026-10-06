@@ -9,10 +9,11 @@ from datetime import date
 
 import numpy as np
 import pytest
+import xarray as xr
 
-from _osisaf_fixture import _fixture_conc, write_osisaf
+from _osisaf_fixture import OSI401D_BITS, _fixture_conc, write_osisaf
 from antarctic_routing.config import DomainSection
-from antarctic_routing.ingestion.osisaf_reader import build_sea_ice_dataset, read_osisaf
+from antarctic_routing.ingestion.osisaf_reader import _flag_mask, build_sea_ice_dataset, product_family, read_osisaf
 from antarctic_routing.preprocessing.grid import PolarGrid
 
 DOMAIN = DomainSection(lat_min=-66.0, lat_max=-55.0, lon_min=-72.0, lon_max=-52.0)
@@ -69,3 +70,55 @@ def test_duplicate_dates_are_rejected(tmp_path, grid):
     b = write_osisaf(tmp_path / "b.nc", date(2024, 12, 1))
     with pytest.raises(ValueError, match="duplicate"):
         build_sea_ice_dataset([a, b], grid)
+
+
+def test_osi401d_flag_descriptions_give_land_mask_and_product_id(tmp_path, grid):
+    """Real OSI-401-d files describe status_flag bits only in free text (no CF flag attributes)."""
+    path = write_osisaf(tmp_path / "d.nc", date(2026, 9, 15), layout="osi401d",
+                        land_box=(-61.0, -60.0, -64.0, -62.0), missing_box=(-58.5, -58.2, -57.0, -56.4),
+                        coast_box=(-62.0, -59.0, -66.0, -60.0))
+    src = read_osisaf(path)
+    assert src.product_id == "OSI-401-d"
+    assert src.land.any() and np.isnan(src.conc[src.land]).all()
+    near_coast_only = ~src.land & np.isfinite(src.conc)
+    assert near_coast_only.any()  # the near-coast bit must not be treated as land
+
+    ds = build_sea_ice_dataset([path], grid)
+    land = ds["land_mask"].values
+    imputed = ds["imputed_mask"].isel(time=0).values
+    assert land.any() and not (land & imputed).any()
+    assert imputed.any()
+    assert ds.attrs["source_product"] == "OSI-401-d"
+
+
+def test_osi401d_bits_are_decoded_from_descriptions(tmp_path):
+    path = write_osisaf(tmp_path / "d.nc", date(2026, 9, 15), layout="osi401d")
+    with xr.open_dataset(path) as ds:
+        flag = ds["status_flag"].isel(time=0)[:1, :6].copy()
+    flag.values[0] = [0, OSI401D_BITS["land"], OSI401D_BITS["lake"], OSI401D_BITS["near_coast"],
+                      OSI401D_BITS["open_water"] + OSI401D_BITS["near_coast"], OSI401D_BITS["missing"]]
+    assert _flag_mask(flag, ("land", "lake"))[0].tolist() == [False, True, True, False, False, False]
+
+
+def test_status_flag_without_any_flag_metadata_is_rejected(tmp_path):
+    path = write_osisaf(tmp_path / "x.nc", date(2026, 9, 15), layout="osi401d", status_attrs={"units": "1"})
+    with pytest.raises(ValueError, match="cannot identify land"):
+        read_osisaf(path)
+
+
+@pytest.mark.parametrize(("product_id", "family"), [
+    ("OSI-401-d", "OSI-401"), ("OSI-401-b", "OSI-401"), ("osi-450-a", "OSI-450"), ("osi-430-a", "OSI-430"),
+    ("unknown", "unknown"),
+])
+def test_product_family_strips_the_version_suffix(product_id, family):
+    assert product_family(product_id) == family
+
+
+def test_dataset_records_family_and_per_file_product_and_version(tmp_path, grid):
+    paths = [write_osisaf(tmp_path / "b.nc", date(2024, 12, 1)),
+             write_osisaf(tmp_path / "d.nc", date(2026, 9, 15), layout="osi401d")]
+    ds = build_sea_ice_dataset(paths, grid)
+    assert ds.attrs["source_product_family"] == "OSI-401"
+    assert ds.attrs["source_files"] == "b.nc,d.nc"
+    assert ds.attrs["source_product_ids"] == "OSI-401-b,OSI-401-d"
+    assert ds.attrs["source_product_versions"] == ",4.1"

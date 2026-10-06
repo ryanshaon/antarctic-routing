@@ -1,0 +1,140 @@
+{
+  "differences": [],
+  "environment": {
+    "git_commit": "fafad33c9fe5fedd48667ad09f912f61f8cb9d8e",
+    "packages": {
+      "matplotlib": "3.11.2",
+      "netCDF4": "1.7.4",
+      "numpy": "2.4.6",
+      "pyproj": "3.7.2",
+      "scikit-learn": "1.9.1",
+      "scipy": "1.17.1",
+      "torch": "2.14.1",
+      "xarray": "2026.9.0"
+    },
+    "platform": "Linux-6.18.44-fc-v64-x86_64-with-glibc2.39",
+    "python": "3.11.15",
+    "untracked_files": 26,
+    "worktree_dirty": true,
+    "worktree_sha256": "63885b89797f24a4c6e0ac9e0b17aa0e6ecd4cafd5c7021e002034e093103b7e"
+  },
+  "frozen_parameters": {
+    "drift_alpha_scale": 0.1,
+    "drift_beta": 0.1,
+    "spread_c": 0.6053,
+    "spread_q": 0.0
+  },
+  "inputs": {
+    "checkpoint": {
+      "bytes": 1970793,
+      "description": "Residual U-Net unet_real25_v1 (history 14 d, leads 21 d; train 2004-17, val 2018-20; best epoch 2)",
+      "path": "models/unet_real25_v1/best.pt",
+      "sha256": "0bea233a0c20650ab64ddb52165e879db7e26db1de230e2a27dc749e78b97fb9",
+      "verified": true
+    },
+    "config": {
+      "path": "config/config.yaml",
+      "sha256": "e3174f13f655560a88cc06bf38e8043a56d231ab88f6cdff843f4af29f95948b",
+      "verified": true
+    },
+    "current_forcing": {
+      "bytes": 4263024,
+      "description": "CMEMS cmems_mod_glo_phy_my_0.083deg_P1D-m uo/vo at 0.494 m, daily, on the 25 km grid, 2023-11-01..2023-12-31",
+      "path": "iceberg/forcing/processed/forcing_cmems_daily_25km_20231101_20231231.nc",
+      "sha256": "fe01ecc45d0f0b9c50c4ac3507c01d3d4d68959560d9c9f1cfd58bb139d79ddd",
+      "verified": true
+    },
+    "drift_selection": {
+      "bytes": 13643,
+      "description": "Iceberg drift calibration selection (gamma = beta = alpha_scale = 0.1)",
+      "path": "iceberg/hindcast/calibration/selection.json",
+      "sha256": "60f6b8bf4edf648cb1bf6a86af5a88de049a076cb670954e0bc58c8196cacb90",
+      "verified": true
+    },
+    "icebergs": {
+      "bytes": 2252,
+      "description": "Official USNIC Antarctic iceberg list of 2023-11-09",
+      "path": "iceberg/raw/archive/AntarcticIcebergs_20231109.csv",
+      "sha256": "01456c81300f273e54663d5b68bd49818bbb5f8a1308f5e803af71d2abfe5355",
+      "verified": true
+    },
+    "sea_ice": {
+      "bytes": 52738719,
+      "description": "OSI SAF OSI-450-a + OSI-430-a daily sea-ice concentration regridded to EPSG:3031 25 km (2004-11-01..2024-02-29)",
+      "path": "processed/sea_ice_25km.nc",
+      "sha256": "5d1bc3510736c37a967eb7334e81b7ce1aeaf1c3037d64b2fbae796b04456184",
+      "verified": true
+    },
+    "spread_calibration": {
+      "bytes": 27738,
+      "description": "Iceberg ensemble spread calibration (c = 0.6053, q = 0)",
+      "path": "iceberg/hindcast/uncertainty/spread_calibration_results.json",
+      "sha256": "7365295c3d7484d02090aaab71d390fe3aeccb9637c1fb56e6fc6c4ccd4c97b7",
+      "verified": true
+    },
+    "wind_forcing": {
+      "bytes": 4263040,
+      "description": "ERA5 u10/v10 UTC-daily means on the 25 km grid, 2023-11-01..2023-12-31",
+      "path": "iceberg/forcing/processed/forcing_era5_daily_25km_20231101_20231231.nc",
+      "sha256": "bf0d37646a595df181ddd9524cc160db6a47ec59e4adb1aaf9b83e07cbf51e3e",
+      "verified": true
+    }
+  },
+  "issue": "2023-11-14",
+  "kind": "frozen_demo_reproduction",
+  "reproduced": true,
+  "result": {
+    "breaches": 0,
+    "distance_km": 837.7532070688744,
+    "execution_mode": "real",
+    "expected_fuel": 837.7614215576623,
+    "expected_hours": 37.503171114273826,
+    "forcing_label": "ERA5 daily winds + CMEMS daily currents",
+    "forcing_status": "real",
+    "n_scenarios": 200,
+    "p_breach_upper": 0.018845326377266575,
+    "plan_window_byte_identical_to_original": true,
+    "plan_window_canonical_sha256": "659bcedf3cef50f6d11e49432b3073c2b69295f04f5b01618ee25881379e7430",
+    "plan_window_sha256": "0d6ef85abec8e170ee324d9414286e9b8ac0f66fc65953bf012d245db7d182a5",
+    "route_cells": 36,
+    "route_cells_with_iceberg_presence": 0,
+    "selected": "2023-11-14"
+  },
+  "routing": {
+    "confidence": 0.95,
+    "ice_class": "REPLACE_WITH_VERIFIED_CLASS",
+    "risk_budget": 0.05,
+    "risk_estimator": "wilson_upper",
+    "vessel": "generic_polar_research_vessel"
+  },
+  "sea_ice": {
+    "dataset": {
+      "crs": "EPSG:3031",
+      "execution_mode": "real",
+      "resolution_m": 25000.0,
+      "source_product": "osi-430-a,osi-450-a"
+    },
+    "forecast_model": {
+      "description": "Residual U-Net unet_real25_v1 (history 14 d, leads 21 d; train 2004-17, val 2018-20; best epoch 2)",
+      "id": "models/unet_real25_v1/best.pt",
+      "sha256": "0bea233a0c20650ab64ddb52165e879db7e26db1de230e2a27dc749e78b97fb9"
+    },
+    "probability_calibration": {
+      "applied_in_route_risk": false
+    }
+  },
+  "seconds": 22.9,
+  "spec": {
+    "description": "Frozen real-data planning window: forecast issued 2023-11-14, 14 departure days, 200 joint scenarios. Research / decision-support only; not a certified navigation product.",
+    "parameters": {
+      "berg_radius_km": 10.0,
+      "drift_alpha_scale": 0.1,
+      "drift_beta": 0.1,
+      "drift_spread_factor": 0.6053,
+      "members": 200,
+      "seed": 42,
+      "window_days": 14
+    }
+  },
+  "spec_sha256": "71a5eac136661153f765a54d1d75034d437f74a83dc3edf6a30568617461be6e"
+}

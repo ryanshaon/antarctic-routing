@@ -1,0 +1,82 @@
+{
+  "kind": "frozen_demo",
+  "description": "Frozen real-data planning window: forecast issued 2023-11-14, 14 departure days, 200 joint scenarios. Research / decision-support only; not a certified navigation product.",
+  "issue": "2023-11-14",
+  "data_root_env": "ANTROUTE_DATA_ROOT",
+  "inputs": {
+    "sea_ice": {
+      "path": "processed/sea_ice_25km.nc",
+      "sha256": "5d1bc3510736c37a967eb7334e81b7ce1aeaf1c3037d64b2fbae796b04456184",
+      "description": "OSI SAF OSI-450-a + OSI-430-a daily sea-ice concentration regridded to EPSG:3031 25 km (2004-11-01..2024-02-29)"
+    },
+    "checkpoint": {
+      "path": "models/unet_real25_v1/best.pt",
+      "sha256": "0bea233a0c20650ab64ddb52165e879db7e26db1de230e2a27dc749e78b97fb9",
+      "description": "Residual U-Net unet_real25_v1 (history 14 d, leads 21 d; train 2004-17, val 2018-20; best epoch 2)"
+    },
+    "wind_forcing": {
+      "path": "iceberg/forcing/processed/forcing_era5_daily_25km_20231101_20231231.nc",
+      "sha256": "bf0d37646a595df181ddd9524cc160db6a47ec59e4adb1aaf9b83e07cbf51e3e",
+      "description": "ERA5 u10/v10 UTC-daily means on the 25 km grid, 2023-11-01..2023-12-31"
+    },
+    "current_forcing": {
+      "path": "iceberg/forcing/processed/forcing_cmems_daily_25km_20231101_20231231.nc",
+      "sha256": "fe01ecc45d0f0b9c50c4ac3507c01d3d4d68959560d9c9f1cfd58bb139d79ddd",
+      "description": "CMEMS cmems_mod_glo_phy_my_0.083deg_P1D-m uo/vo at 0.494 m, daily, on the 25 km grid, 2023-11-01..2023-12-31"
+    },
+    "icebergs": {
+      "path": "iceberg/raw/archive/AntarcticIcebergs_20231109.csv",
+      "sha256": "01456c81300f273e54663d5b68bd49818bbb5f8a1308f5e803af71d2abfe5355",
+      "description": "Official USNIC Antarctic iceberg list of 2023-11-09"
+    },
+    "drift_selection": {
+      "path": "iceberg/hindcast/calibration/selection.json",
+      "sha256": "60f6b8bf4edf648cb1bf6a86af5a88de049a076cb670954e0bc58c8196cacb90",
+      "description": "Iceberg drift calibration selection (gamma = beta = alpha_scale = 0.1)"
+    },
+    "spread_calibration": {
+      "path": "iceberg/hindcast/uncertainty/spread_calibration_results.json",
+      "sha256": "7365295c3d7484d02090aaab71d390fe3aeccb9637c1fb56e6fc6c4ccd4c97b7",
+      "description": "Iceberg ensemble spread calibration (c = 0.6053, q = 0)"
+    }
+  },
+  "config": {
+    "path": "config/config.yaml",
+    "sha256": "e3174f13f655560a88cc06bf38e8043a56d231ab88f6cdff843f4af29f95948b"
+  },
+  "parameters": {
+    "window_days": 14,
+    "members": 200,
+    "seed": 42,
+    "berg_radius_km": 10.0,
+    "drift_beta": 0.1,
+    "drift_alpha_scale": 0.1,
+    "drift_spread_factor": 0.6053
+  },
+  "expected": {
+    "execution_mode": "real",
+    "forcing_status": "real",
+    "forcing_label": "ERA5 daily winds + CMEMS daily currents",
+    "selected": "2023-11-14",
+    "n_scenarios": 200,
+    "breaches": 0,
+    "expected_hours": 37.503171114273826,
+    "expected_fuel": 837.7614215576623,
+    "distance_km": 837.7532070688744,
+    "p_breach_upper": 0.018845326377266575,
+    "route_cells": 36,
+    "route_cells_with_iceberg_presence": 0,
+    "plan_window_canonical_sha256": "659bcedf3cef50f6d11e49432b3073c2b69295f04f5b01618ee25881379e7430",
+    "plan_window_sha256_at_original_paths": "0d6ef85abec8e170ee324d9414286e9b8ac0f66fc65953bf012d245db7d182a5",
+    "original_data_root": "/mnt/project-files/real-data"
+  },
+  "limitations": [
+    "Research / decision-support prototype; not certified for navigation or safety-critical operational use.",
+    "The sea-ice forecast does not beat persistence in a statistically trusted way: trust horizon 0 days against persistence (21 days against damped persistence and climatology).",
+    "Iceberg drift is only slightly better than assuming no movement on position; its demonstrated value is probabilistic (coverage near nominal), confirmed on 5-6 tracks in 2024-25.",
+    "The vessel is a generic polar research vessel and its ice class is a placeholder (REPLACE_WITH_VERIFIED_CLASS); fuel is an index, not tonnes.",
+    "The isotonic forecast-probability calibrator is validated for per-cell P(C >= 0.15) but is NOT applied to route risk; route risk counts breaches over joint scenarios with a Wilson bound.",
+    "This end-to-end result is not evidence that calibrated probabilities are used, and the 1.88 % Wilson bound is the floor for 0 breaches in 200 scenarios, not evidence of forecast skill.",
+    "One demonstration window only; USNIC positions are weekly and currents are daily at 0.5 m depth on a 25 km grid."
+  ]
+}

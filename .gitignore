@@ -17,3 +17,6 @@ reports/
 *.zarr/
 .env
 .cdsapirc
+.env.*
+!.env.example
+node_modules/

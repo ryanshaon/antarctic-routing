@@ -10,3 +10,15 @@ reports
 models
 data
 tests
+scripts
+.venv
+venv
+.env
+.env.*
+.cdsapirc
+*.nc
+*.pt
+*.zarr
+frontend
+node_modules
+**/dist

@@ -16,6 +16,15 @@ layer      source          content
 Only information available on day t is used: the model sees the input window
 ending at t, and the residual bank, climatology and anomaly library come from
 training seasons. Repeating the final forecast beyond H is deliberately avoided.
+
+Forcing: winds and currents are each either one 2-D field repeated on every
+layer (time mean or schematic), or daily fields with one UTC calendar date per
+layer (``wind_times`` / ``current_times``). Daily fields are matched to layer
+dates ``issue + h`` by exact date; a missing date is an error, never a repeat,
+an interpolation or a schematic fallback. ``forcing_sources`` records what each
+field is, so real winds over schematic currents are reported as ``mixed``
+forcing rather than as fully real; ``forcing_provenance`` carries the source
+files/products behind each real field.
 """
 
 from __future__ import annotations
@@ -34,6 +43,42 @@ from antarctic_routing.preprocessing.grid import PolarGrid
 from antarctic_routing.synthetic import ScenarioSet, schematic_currents, schematic_winds
 
 Predictor = Callable[[np.ndarray, Sequence[int]], np.ndarray]
+
+SCHEMATIC = "schematic"
+
+
+def forcing_status(sources: dict[str, str]) -> str:
+    """``real`` when no field is schematic, ``schematic`` when all are, else ``mixed``."""
+    schematic = [v == SCHEMATIC for v in sources.values()]
+    return "schematic" if all(schematic) else "mixed" if any(schematic) else "real"
+
+
+def _daily_times(times, field_xy, name: str = "winds") -> np.ndarray:
+    """Validate a daily axis for ``field_xy`` (``winds`` or ``currents``) and return it as datetime64[D]."""
+    key = f"{name[:-1]}_times"
+    if field_xy is None:
+        raise ValueError(f"{key} given without {name}")
+    days = np.asarray(times).astype("datetime64[D]")
+    if days.ndim != 1 or np.ndim(field_xy[0]) != 3 or np.shape(field_xy[1]) != np.shape(field_xy[0]):
+        raise ValueError(f"time-dependent {name} must be (T, ny, nx) arrays with a 1-D {key}")
+    if days.size != np.shape(field_xy[0])[0]:
+        raise ValueError(f"{key} has {days.size} timestamps but {name} have {np.shape(field_xy[0])[0]} layers")
+    if days.size and not (np.diff(days.astype(np.int64)) > 0).all():
+        raise ValueError(f"{key} must be sorted with one UTC calendar day per layer (no duplicates)")
+    return days
+
+
+def _select_days(days: np.ndarray, layers, issue: date, n_days: int, name: str):
+    """Layers for ``issue .. issue + n_days - 1`` by exact UTC date; any missing date raises."""
+    need = np.datetime64(issue, "D") + np.arange(n_days)
+    idx = np.clip(np.searchsorted(days, need), 0, max(days.size - 1, 0))
+    found = (days.size > 0) & (days[idx] == need)
+    if not found.all():
+        missing = [str(d) for d in need[~found]]
+        span = f"{days[0]} .. {days[-1]} ({days.size} days)" if days.size else "no dates"
+        raise ValueError(f"daily {name} forcing covers {span}; the forecast issued {issue} needs "
+                         f"{need[0]} .. {need[-1]}; missing {len(missing)} date(s): {', '.join(missing)}")
+    return layers[0][idx], layers[1][idx]
 
 
 def grid_of(ds: xr.Dataset) -> PolarGrid:
@@ -54,6 +99,10 @@ class ForecastContext:
     anomalies: dict[int, dict[int, np.ndarray]] = field(repr=False)  # season -> day-of-season -> field
     currents: tuple[np.ndarray, np.ndarray] | None = None
     winds: tuple[np.ndarray, np.ndarray] | None = None
+    wind_times: np.ndarray | None = None          # datetime64[D] per wind layer; None for a 2-D wind field
+    forcing_sources: dict[str, str] = field(default_factory=dict)
+    current_times: np.ndarray | None = None       # datetime64[D] per current layer; None for a 2-D current field
+    forcing_provenance: dict[str, dict] = field(default_factory=dict)   # field -> source file/product record
 
     @classmethod
     def build(
@@ -68,7 +117,21 @@ class ForecastContext:
         seed: int = 0,
         currents: tuple[np.ndarray, np.ndarray] | None = None,
         winds: tuple[np.ndarray, np.ndarray] | None = None,
+        wind_times: Sequence | np.ndarray | None = None,
+        forcing_sources: dict[str, str] | None = None,
+        current_times: Sequence | np.ndarray | None = None,
+        forcing_provenance: dict[str, dict] | None = None,
     ) -> ForecastContext:
+        """``forcing_sources`` names the given fields (e.g. ``{"winds": "ERA5 daily"}``);
+        a field left as None is schematic and always recorded as such. ``forcing_provenance``
+        maps a real field to its source record (file, checksum, product); schematic fields get none."""
+        days_w = None if wind_times is None else _daily_times(wind_times, winds, "winds")
+        days_c = None if current_times is None else _daily_times(current_times, currents, "currents")
+        named = forcing_sources or {}
+        sources = {
+            "winds": SCHEMATIC if winds is None else named.get("winds", "provided"),
+            "currents": SCHEMATIC if currents is None else named.get("currents", "provided"),
+        }
         months = list(season_months)
         days = [np.datetime64(t, "D").astype(object) for t in ds["time"].values]
         conc = ds["ice_concentration"].values.astype(float)
@@ -104,6 +167,8 @@ class ForecastContext:
             anomalies=anomalies,
             currents=currents or schematic_currents(grid, land),
             winds=winds or schematic_winds(grid),
+            wind_times=days_w, forcing_sources=sources, current_times=days_c,
+            forcing_provenance={k: v for k, v in (forcing_provenance or {}).items() if sources.get(k) != SCHEMATIC},
         )
 
     # ----------------------------------------------------------------- lookup
@@ -117,11 +182,34 @@ class ForecastContext:
         except ValueError:
             raise ValueError(f"{day} is not in the dataset") from None
 
+    def forcing_meta(self, issue: date, n_days: int) -> dict:
+        meta = {**self.forcing_sources, "status": forcing_status(self.forcing_sources),
+                "label": f"{self.forcing_sources.get('winds')} winds + {self.forcing_sources.get('currents')} currents"}
+        if self.wind_times is not None:
+            meta["wind_dates"] = [str(issue), str(issue + timedelta(days=n_days - 1))]
+        if self.current_times is not None:
+            meta["current_dates"] = [str(issue), str(issue + timedelta(days=n_days - 1))]
+        if self.forcing_provenance:
+            meta["sources"] = self.forcing_provenance
+        return meta
+
     def anomaly(self, season: int, day: date) -> np.ndarray:
         lib = self.anomalies[season]
         dos = day_of_season(day, self.season_months)
         key = min(lib, key=lambda k: abs(k - dos))  # nearest available day of that season
         return lib[key]
+
+    def wind_layers(self, issue: date, n_days: int) -> tuple[np.ndarray, np.ndarray] | None:
+        """Daily wind layers for ``issue .. issue + n_days - 1`` matched by UTC date (None for 2-D winds)."""
+        if self.wind_times is None:
+            return None
+        return _select_days(self.wind_times, self.winds, issue, n_days, "wind")
+
+    def current_layers(self, issue: date, n_days: int) -> tuple[np.ndarray, np.ndarray] | None:
+        """Daily current layers for ``issue .. issue + n_days - 1`` matched by UTC date (None for 2-D currents)."""
+        if self.current_times is None:
+            return None
+        return _select_days(self.current_times, self.currents, issue, n_days, "current")
 
     # --------------------------------------------------------------- scenarios
     def scenarios(
@@ -136,6 +224,8 @@ class ForecastContext:
         for h in range(n_days):
             if season_of(issue + timedelta(days=h), self.season_months) is None:
                 raise ValueError(f"scenario day {issue + timedelta(days=h)} is outside the season")
+        daily = self.wind_layers(issue, n_days)     # fails before any model work if coverage is missing
+        daily_c = self.current_layers(issue, n_days)
 
         seq = SequenceDataset(self.ds, [], self.history_days, self.lead_days, self.season_months)
         pred = np.asarray(self.predictor(seq.inputs(t)[None], [t]), float)[0]
@@ -167,13 +257,14 @@ class ForecastContext:
         return ScenarioSet(
             grid=grid_of(self.ds), start=datetime(issue.year, issue.month, issue.day),
             time_step_hours=time_step_hours, land=land, conc=conc,
-            current_x=np.broadcast_to(cx, (n_days, *shape)).copy(),
-            current_y=np.broadcast_to(cy, (n_days, *shape)).copy(),
+            current_x=np.broadcast_to(cx, (n_days, *shape)).copy() if daily_c is None else daily_c[0].copy(),
+            current_y=np.broadcast_to(cy, (n_days, *shape)).copy() if daily_c is None else daily_c[1].copy(),
             execution_mode=mode,
             description=(f"Forecast issued {issue}: {hh} forecast day(s) from the model + residual bank, "
                          f"{max(0, n_days - 1 - H)} climatology-anomaly day(s); {K} joint members ({mode})."),
-            wind_x=np.broadcast_to(wx, (n_days, *shape)).copy(),
-            wind_y=np.broadcast_to(wy, (n_days, *shape)).copy(),
+            wind_x=np.broadcast_to(wx, (n_days, *shape)).copy() if daily is None else daily[0].copy(),
+            wind_y=np.broadcast_to(wy, (n_days, *shape)).copy() if daily is None else daily[1].copy(),
             layer_source=source,
-            meta={"issue": issue.isoformat(), "forecast_days": hh, "climatology_seasons": clim_seasons},
+            meta={"issue": issue.isoformat(), "forecast_days": hh, "climatology_seasons": clim_seasons,
+                  "forcing": self.forcing_meta(issue, n_days)},
         )

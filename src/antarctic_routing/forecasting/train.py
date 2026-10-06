@@ -1,10 +1,17 @@
 """Train the sea-ice U-Net with a masked MAE loss and early stopping.
 
-    L_MAE = sum_i M_i |C_hat_i - C_i| / sum_i M_i      (M_i = 1 on ocean cells)
+    L_MAE = sum_i M_i |C_hat_i - C_i| / sum_i M_i      (M_i = 1 on observed ocean cells)
+
+M is per target day and cell: ocean AND NOT imputed (see ``dataset.valid_target_mask``).
 
 The best epoch (lowest validation MAE) is checkpointed together with the
-metadata needed to reproduce and audit it: seasons used, window lengths, seed
-and the execution mode of the training data.
+metadata needed to reproduce and audit it: seasons used, window lengths, seed,
+the execution mode of the training data and the training dataset/grid
+(identifier, SHA-256, grid shape, resolution, origin, source product).
+
+Grid safety: the U-Net accepts any grid size, so a checkpoint is only used on a
+dataset with the same grid shape, resolution and origin it was trained on
+(:func:`check_grid`); anything else is rejected instead of silently run.
 """
 
 from __future__ import annotations
@@ -19,7 +26,7 @@ import torch
 import xarray as xr
 from torch.utils.data import DataLoader
 
-from antarctic_routing.common.provenance import utc_now
+from antarctic_routing.common.provenance import sha256_file, utc_now
 from antarctic_routing.forecasting.dataset import SequenceDataset, build_samples, issue_seasons
 from antarctic_routing.forecasting.unet import IceUNet
 
@@ -27,7 +34,7 @@ from antarctic_routing.forecasting.unet import IceUNet
 @dataclass
 class TrainConfig:
     history_days: int = 14
-    lead_days: int = 7
+    lead_days: int = 21  # same as config forecast.lead_days; the CLI passes the config value
     epochs: int = 30
     batch_size: int = 16
     base_channels: int = 16
@@ -49,7 +56,8 @@ class TrainResult:
 def masked_mae_loss(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     """Mean absolute error over cells where ``mask`` is True.
 
-    ``mask`` may be (H, W), (B, H, W) or (B, 1, H, W); it is broadcast over channels.
+    ``mask`` may be (H, W), (B, H, W), (B, 1, H, W) or per-lead (B, lead, H, W);
+    it is broadcast over channels where needed.
     """
     m = mask.to(pred.dtype)
     if m.dim() == 2:
@@ -58,6 +66,35 @@ def masked_mae_loss(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
         m = m[:, None]
     m = m.expand_as(pred)
     return (torch.abs(pred - target) * m).sum() / m.sum().clamp_min(1.0)
+
+
+def grid_signature(ds: xr.Dataset) -> dict:
+    """What identifies the grid a model was trained on."""
+    return {
+        "grid_shape": [int(n) for n in ds["land_mask"].shape],
+        "resolution_m": float(ds.attrs["resolution_m"]),
+        "x0": float(ds["x"].values[0]),
+        "y0": float(ds["y"].values[0]),
+        "crs": str(ds.attrs.get("crs", "")),
+    }
+
+
+def check_grid(meta: dict, ds: xr.Dataset) -> None:
+    """Raise ``ValueError`` unless ``ds`` is on the grid the checkpoint was trained on."""
+    if "resolution_m" not in meta or "grid_origin" not in meta:
+        raise ValueError("checkpoint has no grid provenance (resolution/origin); retrain it with this version")
+    sig = grid_signature(ds)
+    problems = []
+    if list(meta["grid_shape"]) != sig["grid_shape"]:
+        problems.append(f"grid shape {sig['grid_shape']} != trained {list(meta['grid_shape'])}")
+    if abs(float(meta["resolution_m"]) - sig["resolution_m"]) > 1e-6:
+        trained_km, given_km = float(meta["resolution_m"]) / 1000, sig["resolution_m"] / 1000
+        problems.append(f"resolution {given_km:g} km != trained {trained_km:g} km")
+    x0, y0 = meta["grid_origin"]
+    if max(abs(x0 - sig["x0"]), abs(y0 - sig["y0"])) > 0.5 * sig["resolution_m"]:
+        problems.append(f"grid origin ({sig['x0']:.0f}, {sig['y0']:.0f}) != trained ({x0:.0f}, {y0:.0f})")
+    if problems:
+        raise ValueError("checkpoint does not match this dataset's grid: " + "; ".join(problems))
 
 
 def _subset(ds: xr.Dataset, cfg: TrainConfig, season_months, seasons: Sequence[int]) -> SequenceDataset:
@@ -74,7 +111,7 @@ def _evaluate(model: IceUNet, loader: DataLoader) -> float:
     total, weight = 0.0, 0.0
     with torch.no_grad():
         for x, y, mask in loader:
-            m = mask[:, None].expand_as(y).float()
+            m = mask.expand_as(y).float()
             total += float((torch.abs(model(x) - y) * m).sum())
             weight += float(m.sum())
     return total / max(weight, 1.0)
@@ -87,7 +124,10 @@ def train_unet(
     season_months: Sequence[int],
     cfg: TrainConfig,
     out_dir: str | Path,
+    dataset_path: str | Path | None = None,
+    dataset_id: str | None = None,
 ) -> TrainResult:
+    """Train and checkpoint. ``dataset_path`` (fingerprinted with SHA-256) or ``dataset_id`` names the data."""
     if set(train_seasons) & set(val_seasons):
         raise ValueError("train and validation seasons overlap")
     torch.manual_seed(cfg.seed)
@@ -112,7 +152,7 @@ def train_unet(
         running, batches = 0.0, 0
         for x, y, mask in train_loader:
             opt.zero_grad()
-            loss = masked_mae_loss(model(x), y, mask[:, None])
+            loss = masked_mae_loss(model(x), y, mask)
             loss.backward()
             opt.step()
             running += loss.item()
@@ -130,12 +170,22 @@ def train_unet(
 
     model.load_state_dict(best_state)
     model.eval()
+    sig = grid_signature(ds)
+    dataset = {
+        "id": str(dataset_path) if dataset_path is not None else (dataset_id or "in-memory dataset"),
+        "path": str(dataset_path) if dataset_path is not None else None,
+        "sha256": sha256_file(Path(dataset_path)) if dataset_path is not None else None,
+        "execution_mode": ds.attrs.get("execution_mode", "real"),
+        "crs": sig["crs"],
+        **{k: ds.attrs[k] for k in ("source_product", "source_product_family") if k in ds.attrs},
+    }
     meta = {
         "in_channels": train.in_channels, "out_channels": cfg.lead_days, "base_channels": cfg.base_channels,
         "persistence_channel": model.persistence_channel,
         "train_config": asdict(cfg), "train_seasons": sorted(train_seasons), "val_seasons": sorted(val_seasons),
         "season_months": list(season_months), "best_epoch": result.best_epoch, "val_mae": best,
-        "execution_mode": ds.attrs.get("execution_mode", "real"), "grid_shape": list(train.land.shape),
+        "execution_mode": ds.attrs.get("execution_mode", "real"), "grid_shape": sig["grid_shape"],
+        "resolution_m": sig["resolution_m"], "grid_origin": [sig["x0"], sig["y0"]], "dataset": dataset,
         "created_at": utc_now(),
     }
     result.checkpoint = out / "best.pt"
@@ -144,19 +194,27 @@ def train_unet(
     return result
 
 
-def load_model(path: str | Path) -> tuple[IceUNet, dict]:
+def load_model(path: str | Path, ds: xr.Dataset | None = None) -> tuple[IceUNet, dict]:
+    """Load a checkpoint; with ``ds``, refuse it unless ``ds`` is on the training grid."""
     blob = torch.load(path, map_location="cpu", weights_only=True)
     meta = blob["meta"]
+    if ds is not None:
+        check_grid(meta, ds)
     model = IceUNet(meta["in_channels"], meta["out_channels"], base=meta["base_channels"],
                     persistence_channel=meta.get("persistence_channel"))
     model.load_state_dict(blob["state_dict"])
+    model.grid_shape = tuple(meta["grid_shape"])
     return model.eval(), meta
 
 
 def unet_predictor(model: IceUNet, batch_size: int = 32):
     """Adapter giving a U-Net the ``predictor(inputs, indices)`` interface used by evaluation."""
 
+    expected = getattr(model, "grid_shape", None)
+
     def predict(inputs: np.ndarray, indices: Sequence[int]) -> np.ndarray:
+        if expected is not None and tuple(np.shape(inputs)[-2:]) != tuple(expected):
+            raise ValueError(f"input grid {tuple(np.shape(inputs)[-2:])} != model's training grid {tuple(expected)}")
         outs = []
         with torch.no_grad():
             for i in range(0, len(inputs), batch_size):

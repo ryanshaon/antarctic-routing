@@ -12,6 +12,9 @@
    because ensemble spread is not automatically a calibrated probability.
 4. **Verification** on test seasons: Brier score, reliability tables and Brier
    skill vs a climatological-frequency baseline (fitted on training seasons).
+
+Only observed ocean cells (ocean AND NOT imputed on the target day) enter the
+residual bank, the isotonic fit and the scores; residuals at imputed cells are 0.
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ import numpy as np
 import xarray as xr
 from sklearn.isotonic import IsotonicRegression
 
-from antarctic_routing.forecasting.dataset import SequenceDataset, build_samples, issue_seasons
+from antarctic_routing.forecasting.dataset import SequenceDataset, build_samples, issue_seasons, valid_target_mask
 from antarctic_routing.preprocessing.climatology import Climatology
 from antarctic_routing.validation.metrics import brier_score, reliability_bins
 
@@ -117,6 +120,7 @@ def evaluate_probabilities(
     days = _days(ds)
     obs = ds["ice_concentration"].values.astype(float)
     ocean = ~ds["land_mask"].values.astype(bool)
+    scoreable = valid_target_mask(ds)  # (T, ny, nx): ocean and not imputed
     split = {name: _split_indices(ds, history_days, lead_days, season_months, seasons)
              for name, seasons in (("train", train_seasons), ("val", val_seasons), ("test", test_seasons))}
     seq = SequenceDataset(ds, split["train"] + split["val"] + split["test"], history_days, lead_days, season_months)
@@ -124,29 +128,32 @@ def evaluate_probabilities(
     bank_idx = sorted(rng.choice(split["train"], size=min(bank_size, len(split["train"])), replace=False).tolist())
     pred_bank = _predict(seq, predictor, bank_idx)
     target_bank = np.stack([obs[t + 1: t + H + 1] for t in bank_idx])
-    bank = np.nan_to_num(target_bank - pred_bank, nan=0.0)
+    valid_bank = np.stack([scoreable[t + 1: t + H + 1] for t in bank_idx])
+    bank = np.where(valid_bank, np.nan_to_num(target_bank - pred_bank, nan=0.0), 0.0)
 
     def probabilities(indices):
         preds = _predict(seq, predictor, indices)
         p = np.empty((len(indices), H, int(ocean.sum())))
         o = np.empty_like(p)
+        v = np.empty(p.shape, bool)
         for j, t in enumerate(indices):
             members = residual_ensemble(preds[j], bank, n_members, rng)
             p[j] = (members >= tau).mean(axis=0)[:, ocean]
             o[j] = (np.nan_to_num(obs[t + 1: t + H + 1]) >= tau)[:, ocean]
-        return p, o
+            v[j] = scoreable[t + 1: t + H + 1][:, ocean]
+        return p, o, v
 
-    p_val, o_val = probabilities(split["val"])
+    p_val, o_val, v_val = probabilities(split["val"])
     fit_data = {}
     for h in range(H):
-        pv, ov = p_val[:, h].ravel(), o_val[:, h].ravel()
+        pv, ov = p_val[:, h][v_val[:, h]], o_val[:, h][v_val[:, h]]
         if pv.size > max_fit_points:
             keep = rng.choice(pv.size, max_fit_points, replace=False)
             pv, ov = pv[keep], ov[keep]
         fit_data[h + 1] = (pv, ov)
     calibrator = IsotonicCalibrator.fit(fit_data)
 
-    p_test, o_test = probabilities(split["test"])
+    p_test, o_test, v_test = probabilities(split["test"])
     clim = _exceedance_climatology(ds, train_seasons, season_months, tau)
     p_clim = np.stack([
         np.stack([np.nan_to_num(clim.mean_for(days[t] + timedelta(days=h)), nan=0.0)[ocean] for h in range(1, H + 1)])
@@ -154,7 +161,7 @@ def evaluate_probabilities(
     ])
     p_cal = np.stack([calibrator.transform(p_test[:, h], h + 1) for h in range(H)], axis=1)
 
-    briers = {name: [brier_score(arr[:, h], o_test[:, h]) for h in range(H)]
+    briers = {name: [brier_score(arr[:, h][v_test[:, h]], o_test[:, h][v_test[:, h]]) for h in range(H)]
               for name, arr in (("raw", p_test), ("calibrated", p_cal), ("climatology", p_clim))}
     return {
         "tau": tau,
@@ -164,7 +171,7 @@ def evaluate_probabilities(
             name: [1.0 - b / c if c > 0 else None for b, c in zip(briers[name], briers["climatology"], strict=True)]
             for name in ("raw", "calibrated")
         },
-        "reliability": {name: reliability_bins(arr, o_test)
+        "reliability": {name: reliability_bins(arr[v_test], o_test[v_test])
                         for name, arr in (("raw", p_test), ("calibrated", p_cal), ("climatology", p_clim))},
         "calibrator": calibrator.to_dict(),
         "n_members": n_members,

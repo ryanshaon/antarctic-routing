@@ -1,0 +1,1120 @@
+{
+  "data_description": "Forecast issued 2023-11-14: 19 forecast day(s) from the model + residual bank, 0 climatology-anomaly day(s); 200 joint members (real). + iceberg drift ensemble (A23A, A76B, A76C, A80A, A80D, D20A, D30B, radius 10 km)",
+  "disclaimer": "Research recommendation only - not a certified navigation route. Antarctic operations require authoritative ice information, vessel-specific operating limits, applicable ice-class guidance and qualified human oversight.",
+  "execution_mode": "real",
+  "explanation": "Forecast issued 2023-11-14: 14 of 14 departure dates eligible; selected 2023-11-14 (+0 d, forecast-supported, E[fuel index]=838, E[time]=37.5 h, P(breach) upper bound 1.9%).",
+  "forcing": {
+    "current_forcing": "forcing_cmems_daily_25km_20231101_20231231.nc",
+    "wind_forcing": "forcing_era5_daily_25km_20231101_20231231.nc"
+  },
+  "forcing_provenance": {
+    "current_dates": [
+      "2023-11-14",
+      "2023-12-03"
+    ],
+    "currents": "CMEMS daily",
+    "label": "ERA5 daily winds + CMEMS daily currents",
+    "sources": {
+      "currents": {
+        "averaging": "currents: UTC-daily mean of surface uo/vo, each component averaged separately",
+        "crs": "EPSG:3031",
+        "forcing_file": "forcing_cmems_daily_25km_20231101_20231231.nc",
+        "forcing_sha256": "fe01ecc45d0f0b9c50c4ac3507c01d3d4d68959560d9c9f1cfd58bb139d79ddd",
+        "product": "CMEMS",
+        "resolution_m": 25000.0,
+        "source_files": "20231101-20231231-ebc7503a434e.nc",
+        "source_sha256": "62e40f94efa18336815cb78d8718965f54b261f2f83a968f7b7547a1613903c2",
+        "time_mode": "daily"
+      },
+      "winds": {
+        "averaging": "wind: UTC-daily mean of hourly u10/v10, each component averaged separately",
+        "crs": "EPSG:3031",
+        "forcing_file": "forcing_era5_daily_25km_20231101_20231231.nc",
+        "forcing_sha256": "bf0d37646a595df181ddd9524cc160db6a47ec59e4adb1aaf9b83e07cbf51e3e",
+        "product": "ERA5",
+        "resolution_m": 25000.0,
+        "source_files": "era5_single_levels_u10v10_20231101_20231231_hourly_gridarea25km.nc",
+        "source_sha256": "6ddc518317509b39395865fc98f02920435c652f0805fbf3b772ba89ed223345",
+        "time_mode": "daily"
+      }
+    },
+    "status": "real",
+    "wind_dates": [
+      "2023-11-14",
+      "2023-12-03"
+    ],
+    "winds": "ERA5 daily"
+  },
+  "forecast_lead_days": 21,
+  "iceberg_drift": {
+    "alpha_range": [
+      0.001,
+      0.003
+    ],
+    "beta": 0.1,
+    "drifted": true,
+    "radius_m": 10000.0,
+    "spread_factor": 0.6053
+  },
+  "iceberg_hazard": {
+    "cells_with_any_presence_per_layer": [
+      40,
+      56,
+      63,
+      69,
+      79,
+      87,
+      92,
+      103,
+      115,
+      131,
+      139,
+      148,
+      159,
+      173,
+      181,
+      186,
+      201,
+      222,
+      238,
+      244
+    ],
+    "cells_with_presence_ge_5pct_per_layer": [
+      34,
+      41,
+      46,
+      56,
+      60,
+      67,
+      71,
+      79,
+      81,
+      84,
+      87,
+      92,
+      97,
+      100,
+      108,
+      113,
+      119,
+      125,
+      133,
+      136
+    ],
+    "max_member_fraction_per_layer": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.995,
+      0.98,
+      0.98,
+      0.95,
+      0.925,
+      0.885,
+      0.865,
+      0.815,
+      0.78,
+      0.74,
+      0.71,
+      0.69,
+      0.68,
+      0.645
+    ]
+  },
+  "iceberg_source": {
+    "bytes": 2252,
+    "execution_mode": "real",
+    "filename": "AntarcticIcebergs_20231109.csv",
+    "lat_bounds": [
+      -76.81,
+      -51.15
+    ],
+    "lon_bounds": [
+      -155.29,
+      147.46
+    ],
+    "n_rows": 49,
+    "n_unique_icebergs": 49,
+    "product": "Antarctic Iceberg Data, CSV",
+    "quality_flags": {
+      "below_usnic_tracking_criterion": [
+        "A74B",
+        "A80D",
+        "B38",
+        "B39",
+        "B45",
+        "C29",
+        "C30",
+        "C31",
+        "C35",
+        "C38B",
+        "D23",
+        "D27"
+      ],
+      "duplicate_iceberg_ids": [],
+      "duplicate_positions": [],
+      "invalid_coordinates": [],
+      "not_southern_hemisphere": []
+    },
+    "sha256": "01456c81300f273e54663d5b68bd49818bbb5f8a1308f5e803af71d2abfe5355",
+    "source": "U.S. National Ice Center (USNIC), official",
+    "source_url": null,
+    "update_dates": [
+      "2023-11-09"
+    ]
+  },
+  "icebergs": [
+    {
+      "id": "A23A",
+      "lat": -63.13,
+      "lon": -51.67
+    },
+    {
+      "id": "A76B",
+      "lat": -65.31,
+      "lon": -58.29
+    },
+    {
+      "id": "A76C",
+      "lat": -65.44,
+      "lon": -59.46
+    },
+    {
+      "id": "A80A",
+      "lat": -65.66,
+      "lon": -57.48
+    },
+    {
+      "id": "A80D",
+      "lat": -65.61,
+      "lon": -56.98
+    },
+    {
+      "id": "D20A",
+      "lat": -62.7,
+      "lon": -50.5
+    },
+    {
+      "id": "D30B",
+      "lat": -60.88,
+      "lon": -44.99
+    }
+  ],
+  "icebergs_outside_grid": [
+    {
+      "id": "A74A",
+      "lat": -71.51,
+      "lon": -55.01
+    },
+    {
+      "id": "A74B",
+      "lat": -68.55,
+      "lon": -54.75
+    },
+    {
+      "id": "A76H",
+      "lat": -51.15,
+      "lon": -22.25
+    },
+    {
+      "id": "A77",
+      "lat": -72.54,
+      "lon": -54.62
+    },
+    {
+      "id": "A78",
+      "lat": -60.95,
+      "lon": -32.94
+    },
+    {
+      "id": "A81",
+      "lat": -76.46,
+      "lon": -49.35
+    },
+    {
+      "id": "B09B",
+      "lat": -66.17,
+      "lon": 143.43
+    },
+    {
+      "id": "B09G",
+      "lat": -68.19,
+      "lon": 41.72
+    },
+    {
+      "id": "B15AB",
+      "lat": -72.19,
+      "lon": -15.91
+    },
+    {
+      "id": "B22A",
+      "lat": -71.71,
+      "lon": -113.54
+    },
+    {
+      "id": "B29",
+      "lat": -73.75,
+      "lon": -110.39
+    },
+    {
+      "id": "B38",
+      "lat": -76.81,
+      "lon": -155.29
+    },
+    {
+      "id": "B39",
+      "lat": -71.09,
+      "lon": -54.73
+    },
+    {
+      "id": "B45",
+      "lat": -72.49,
+      "lon": -113.12
+    },
+    {
+      "id": "B46",
+      "lat": -64.29,
+      "lon": -146.28
+    },
+    {
+      "id": "B47",
+      "lat": -73.74,
+      "lon": -132.26
+    },
+    {
+      "id": "C15",
+      "lat": -65.93,
+      "lon": 143.18
+    },
+    {
+      "id": "C18B",
+      "lat": -65.77,
+      "lon": 81.64
+    },
+    {
+      "id": "C21B",
+      "lat": -64.99,
+      "lon": 95.86
+    },
+    {
+      "id": "C24",
+      "lat": -64.84,
+      "lon": 96.02
+    },
+    {
+      "id": "C29",
+      "lat": -66.06,
+      "lon": 142.75
+    },
+    {
+      "id": "C30",
+      "lat": -64.78,
+      "lon": 96.29
+    },
+    {
+      "id": "C31",
+      "lat": -64.68,
+      "lon": 96.5
+    },
+    {
+      "id": "C33",
+      "lat": -65.24,
+      "lon": 125.01
+    },
+    {
+      "id": "C35",
+      "lat": -66.27,
+      "lon": 142.99
+    },
+    {
+      "id": "C36",
+      "lat": -67.91,
+      "lon": 147.46
+    },
+    {
+      "id": "C38B",
+      "lat": -64.9,
+      "lon": 98.45
+    },
+    {
+      "id": "C39",
+      "lat": -64.66,
+      "lon": 98.3
+    },
+    {
+      "id": "D15A",
+      "lat": -66.63,
+      "lon": 82.14
+    },
+    {
+      "id": "D15B",
+      "lat": -66.9,
+      "lon": 81.73
+    },
+    {
+      "id": "D23",
+      "lat": -69.43,
+      "lon": 74.7
+    },
+    {
+      "id": "D27",
+      "lat": -71.17,
+      "lon": -45.56
+    },
+    {
+      "id": "D28",
+      "lat": -55.1,
+      "lon": -38.91
+    },
+    {
+      "id": "D29A",
+      "lat": -58.67,
+      "lon": -25.67
+    },
+    {
+      "id": "D29B",
+      "lat": -55.94,
+      "lon": -41.15
+    },
+    {
+      "id": "D29C",
+      "lat": -60.77,
+      "lon": -35.82
+    },
+    {
+      "id": "D30A",
+      "lat": -57.29,
+      "lon": -47.31
+    },
+    {
+      "id": "D31",
+      "lat": -60.35,
+      "lon": -37.54
+    },
+    {
+      "id": "D32",
+      "lat": -65.59,
+      "lon": 55.53
+    },
+    {
+      "id": "D33A",
+      "lat": -69.67,
+      "lon": 7.25
+    },
+    {
+      "id": "D33B",
+      "lat": -69.55,
+      "lon": 11.01
+    },
+    {
+      "id": "D34",
+      "lat": -67.18,
+      "lon": 82.12
+    }
+  ],
+  "issue": "2023-11-14",
+  "layer_source": [
+    "observed",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast",
+    "forecast"
+  ],
+  "model_train_seasons": [
+    2004,
+    2005,
+    2006,
+    2007,
+    2008,
+    2009,
+    2010,
+    2011,
+    2012,
+    2013,
+    2014,
+    2015,
+    2016,
+    2017
+  ],
+  "n_members": 200,
+  "options": [
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-14",
+      "expected_fuel": 837.7614215576623,
+      "expected_hours": 37.503171114273826,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 0,
+      "p_breach": 0.0,
+      "p_breach_upper": 0.018845326377266575,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "risk_weighted_1000",
+        "scenario_17_optimal",
+        "scenario_154_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-15",
+      "expected_fuel": 837.7661710207077,
+      "expected_hours": 37.611122749780414,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 1,
+      "p_breach": 0.0,
+      "p_breach_upper": 0.018845326377266575,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "risk_weighted_1000",
+        "scenario_17_optimal",
+        "scenario_154_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-16",
+      "expected_fuel": 837.8835883743453,
+      "expected_hours": 37.20903482048233,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 2,
+      "p_breach": 0.01,
+      "p_breach_upper": 0.0357217617161768,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "risk_weighted_1000",
+        "scenario_17_optimal",
+        "scenario_154_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-17",
+      "expected_fuel": 837.7678977809526,
+      "expected_hours": 37.03472749787349,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 3,
+      "p_breach": 0.0,
+      "p_breach_upper": 0.018845326377266575,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "risk_weighted_1000",
+        "scenario_17_optimal",
+        "scenario_154_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-18",
+      "expected_fuel": 837.9480536884159,
+      "expected_hours": 37.6066544937437,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 4,
+      "p_breach": 0.015,
+      "p_breach_upper": 0.04316572879269026,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "scenario_17_optimal",
+        "scenario_154_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-19",
+      "expected_fuel": 837.767398427742,
+      "expected_hours": 37.683317520584076,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 5,
+      "p_breach": 0.0,
+      "p_breach_upper": 0.018845326377266575,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "risk_weighted_1000",
+        "scenario_17_optimal",
+        "scenario_154_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-20",
+      "expected_fuel": 848.6796315508625,
+      "expected_hours": 38.36843108756207,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 6,
+      "p_breach": 0.0,
+      "p_breach_upper": 0.018845326377266575,
+      "route_labels": [
+        "risk_weighted_1000"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-21",
+      "expected_fuel": 837.7686164070907,
+      "expected_hours": 37.738605480974336,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 7,
+      "p_breach": 0.0,
+      "p_breach_upper": 0.018845326377266575,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "risk_weighted_1000",
+        "scenario_17_optimal",
+        "scenario_154_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-22",
+      "expected_fuel": 837.7693321536519,
+      "expected_hours": 37.658061039983366,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 8,
+      "p_breach": 0.0,
+      "p_breach_upper": 0.018845326377266575,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "risk_weighted_1000",
+        "scenario_17_optimal",
+        "scenario_154_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-23",
+      "expected_fuel": 837.8862891271489,
+      "expected_hours": 37.4553266677682,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 9,
+      "p_breach": 0.01,
+      "p_breach_upper": 0.0357217617161768,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "risk_weighted_1000",
+        "scenario_17_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-24",
+      "expected_fuel": 837.7682959867383,
+      "expected_hours": 37.520550675989014,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 10,
+      "p_breach": 0.0,
+      "p_breach_upper": 0.018845326377266575,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "risk_weighted_1000",
+        "scenario_17_optimal",
+        "scenario_154_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-25",
+      "expected_fuel": 837.7678255278444,
+      "expected_hours": 37.37799098111126,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 11,
+      "p_breach": 0.0,
+      "p_breach_upper": 0.018845326377266575,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "risk_weighted_1000",
+        "scenario_17_optimal",
+        "scenario_154_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-26",
+      "expected_fuel": 837.7684984402435,
+      "expected_hours": 37.42582813874567,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 12,
+      "p_breach": 0.0,
+      "p_breach_upper": 0.018845326377266575,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "risk_weighted_1000",
+        "scenario_17_optimal",
+        "scenario_154_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    },
+    {
+      "beyond_horizon_fraction": 0.0,
+      "departure": "2023-11-27",
+      "expected_fuel": 837.7678472841038,
+      "expected_hours": 37.10929238847447,
+      "feasible": true,
+      "forecast_fraction": 1.0,
+      "lead_days": 13,
+      "p_breach": 0.0,
+      "p_breach_upper": 0.018845326377266575,
+      "route_labels": [
+        "shortest_distance",
+        "minimum_time",
+        "minimum_fuel",
+        "risk_weighted_10",
+        "risk_weighted_100",
+        "risk_weighted_1000",
+        "scenario_17_optimal",
+        "scenario_154_optimal"
+      ],
+      "status": "feasible",
+      "support": "forecast-supported",
+      "within_trust_horizon": null
+    }
+  ],
+  "rule": "min expected fuel among feasible departure dates; dates within 1% of the minimum are treated as equal and the earliest is selected",
+  "selected": "2023-11-14",
+  "selected_route": {
+    "cells_row_col": [
+      [
+        29,
+        12
+      ],
+      [
+        29,
+        13
+      ],
+      [
+        29,
+        14
+      ],
+      [
+        29,
+        15
+      ],
+      [
+        29,
+        16
+      ],
+      [
+        29,
+        17
+      ],
+      [
+        29,
+        18
+      ],
+      [
+        29,
+        19
+      ],
+      [
+        29,
+        20
+      ],
+      [
+        29,
+        21
+      ],
+      [
+        29,
+        22
+      ],
+      [
+        29,
+        23
+      ],
+      [
+        29,
+        24
+      ],
+      [
+        29,
+        25
+      ],
+      [
+        29,
+        26
+      ],
+      [
+        29,
+        27
+      ],
+      [
+        29,
+        28
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        29,
+        30
+      ],
+      [
+        29,
+        31
+      ],
+      [
+        29,
+        32
+      ],
+      [
+        29,
+        33
+      ],
+      [
+        29,
+        34
+      ],
+      [
+        29,
+        35
+      ],
+      [
+        29,
+        36
+      ],
+      [
+        29,
+        37
+      ],
+      [
+        29,
+        38
+      ],
+      [
+        29,
+        39
+      ],
+      [
+        29,
+        40
+      ],
+      [
+        29,
+        41
+      ],
+      [
+        29,
+        42
+      ],
+      [
+        29,
+        43
+      ],
+      [
+        29,
+        44
+      ],
+      [
+        29,
+        45
+      ],
+      [
+        29,
+        46
+      ],
+      [
+        29,
+        47
+      ]
+    ],
+    "coordinates_lat_lon": [
+      [
+        -56.3084,
+        -65.90233
+      ],
+      [
+        -56.50139,
+        -65.74608
+      ],
+      [
+        -56.69434,
+        -65.58791
+      ],
+      [
+        -56.88723,
+        -65.4278
+      ],
+      [
+        -57.08006,
+        -65.2657
+      ],
+      [
+        -57.27282,
+        -65.10158
+      ],
+      [
+        -57.4655,
+        -64.93542
+      ],
+      [
+        -57.65811,
+        -64.76717
+      ],
+      [
+        -57.85063,
+        -64.59679
+      ],
+      [
+        -58.04305,
+        -64.42426
+      ],
+      [
+        -58.23538,
+        -64.24953
+      ],
+      [
+        -58.4276,
+        -64.07255
+      ],
+      [
+        -58.6197,
+        -63.89331
+      ],
+      [
+        -58.81169,
+        -63.71174
+      ],
+      [
+        -59.00354,
+        -63.52781
+      ],
+      [
+        -59.19526,
+        -63.34148
+      ],
+      [
+        -59.38683,
+        -63.15271
+      ],
+      [
+        -59.57825,
+        -62.96144
+      ],
+      [
+        -59.76951,
+        -62.76764
+      ],
+      [
+        -59.9606,
+        -62.57126
+      ],
+      [
+        -60.15152,
+        -62.37225
+      ],
+      [
+        -60.34224,
+        -62.17056
+      ],
+      [
+        -60.53278,
+        -61.96615
+      ],
+      [
+        -60.72311,
+        -61.75896
+      ],
+      [
+        -60.91323,
+        -61.54894
+      ],
+      [
+        -61.10312,
+        -61.33604
+      ],
+      [
+        -61.29279,
+        -61.12021
+      ],
+      [
+        -61.48221,
+        -60.90139
+      ],
+      [
+        -61.67138,
+        -60.67952
+      ],
+      [
+        -61.86029,
+        -60.45456
+      ],
+      [
+        -62.04892,
+        -60.22643
+      ],
+      [
+        -62.23728,
+        -59.99508
+      ],
+      [
+        -62.42533,
+        -59.76045
+      ],
+      [
+        -62.61309,
+        -59.52248
+      ],
+      [
+        -62.80052,
+        -59.2811
+      ],
+      [
+        -62.98763,
+        -59.03624
+      ]
+    ],
+    "departure": "2023-11-14",
+    "evaluation": {
+      "beyond_horizon_fraction": 0.0,
+      "breaches": 0,
+      "destination_breach_prob": 0.0,
+      "distance_km": 837.7532070688744,
+      "expected_fuel": 837.7614215576623,
+      "expected_hours": 37.503171114273826,
+      "fuel_p10": 837.7532070688743,
+      "fuel_p90": 837.7773297638686,
+      "hours_p10": 37.494566144576524,
+      "hours_p90": 37.514414376088446,
+      "impassable_scenarios": 0,
+      "n_scenarios": 200,
+      "p_breach": 0.0,
+      "p_breach_upper": 0.018845326377266575
+    },
+    "iceberg_presence_on_route": {
+      "layers": [
+        0,
+        1
+      ],
+      "max_member_fraction_on_route_cells": 0.0,
+      "route_cells_with_any_presence": 0
+    },
+    "labels": [
+      "shortest_distance",
+      "minimum_time",
+      "minimum_fuel",
+      "risk_weighted_10",
+      "risk_weighted_100",
+      "risk_weighted_1000",
+      "scenario_17_optimal",
+      "scenario_154_optimal"
+    ],
+    "max_segment_breach_prob": 0.0
+  },
+  "trust_horizon_days": null
+}

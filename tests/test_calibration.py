@@ -107,3 +107,25 @@ def test_evaluate_probabilities_report(history):
 def test_evaluate_probabilities_rejects_split_overlap(history):
     with pytest.raises(ValueError, match="overlap"):
         evaluate_probabilities(history, lambda i, t: None, [2010], [2010, 2011], [2015], 5, 3, SEASON)
+
+
+def test_evaluate_probabilities_ignores_imputed_cells(history):
+    """Corrupted values at imputed cells must not reach the bank, the isotonic fit or the scores."""
+    truth = np.nan_to_num(history["ice_concentration"].values, nan=0.0)
+
+    def oracle(inputs, idx):
+        return np.stack([truth[t + 1: t + 4] for t in idx])
+
+    h = history.copy(deep=True)
+    cells = np.zeros(h["land_mask"].shape, bool)
+    cells[4:12, 4:12] = True
+    cells &= ~h["land_mask"].values
+    test_days = np.where(h["time"].values >= np.datetime64("2015-11-01"))[0]
+    for d in test_days:  # corrupt only test-season targets, so the bank cannot "learn" the corruption
+        h["imputed_mask"].values[d, cells] = True
+        h["ice_concentration"].values[d, cells] = 1.0 - h["ice_concentration"].values[d, cells]
+    kwargs = dict(train_seasons=[2010, 2011, 2012], val_seasons=[2013, 2014], test_seasons=[2015],
+                  history_days=5, lead_days=3, season_months=SEASON, tau=0.15, n_members=10, seed=0)
+    assert max(evaluate_probabilities(h, oracle, **kwargs)["brier"]["raw"]) == pytest.approx(0.0)
+    h["imputed_mask"].values[:] = False  # same corrupted values, now treated as observed
+    assert max(evaluate_probabilities(h, oracle, **kwargs)["brier"]["raw"]) > 0.0

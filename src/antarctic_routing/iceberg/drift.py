@@ -2,13 +2,17 @@
 
 Physics (transparent baseline):
 
-    dx/dt = u_o(x, t) + alpha * u_a(x, t)
+    dx/dt = beta * u_o(x, t) + alpha * u_a(x, t)
 
 integrated with Heun's RK2 in EPSG:3031. Forcing velocities are true ground
 speeds (m/s) in grid-aligned components; because the stereographic projection
 is conformal but stretches distances by the point scale factor k, the map
 position advances at k * velocity. alpha (~0.01-0.03) is an *effective* wind
 coefficient that depends on iceberg size and shape - treat it as uncertain.
+beta is the ocean-current coupling coefficient: 1 (the default, used by the
+planner) applies the surface current as given; beta < 1 represents a large
+berg responding to a weaker keel-depth/sea-ice-damped current than the
+0.5 m model level. It is only changed by an explicit calibration.
 
 Ensembles perturb the initial position, alpha (per member and berg) and a
 member-wide velocity error shared by all bergs (forcing errors are spatially
@@ -90,7 +94,7 @@ def _scale(px: np.ndarray, py: np.ndarray) -> np.ndarray:
     return np.asarray(_PROJ.get_factors(lon, lat).meridional_scale)
 
 
-def _integrate(px, py, alpha, noise, current, wind, hours, dt_hours):
+def _integrate(px, py, alpha, noise, current, wind, hours, dt_hours, beta: float = 1.0):
     n = int(round(hours / dt_hours))
     dt = dt_hours * 3600.0
     out = np.full((n + 1, px.size, 2), np.nan)
@@ -99,6 +103,7 @@ def _integrate(px, py, alpha, noise, current, wind, hours, dt_hours):
 
     def vel(t, x, y):
         uo, vo = current.sample(t, x, y)
+        uo, vo = beta * uo, beta * vo
         if wind is not None:
             ua, va = wind.sample(t, x, y)
             uo, vo = uo + alpha * ua, vo + alpha * va
@@ -156,6 +161,7 @@ def drift_ensemble(
     alpha_range: tuple[float, float] = (0.01, 0.03),
     velocity_noise: float = 0.03,
     dt_hours: float = 1.0,
+    beta: float = 1.0,
 ) -> DriftEnsemble:
     K, B = n_members, len(bergs)
     x0, y0 = PolarGrid.to_xy(np.array([b[1] for b in bergs]), np.array([b[2] for b in bergs]))
@@ -166,9 +172,25 @@ def drift_ensemble(
     alpha = rng.uniform(alpha_range[0], alpha_range[1], (K, B))
     member_noise = rng.normal(0, velocity_noise, (K, 1, 2)) if velocity_noise else np.zeros((K, 1, 2))
     noise = np.broadcast_to(member_noise, (K, B, 2)).reshape(K * B, 2)
-    times, out = _integrate(px.ravel(), py.ravel(), alpha.ravel(), noise, current, wind, hours, dt_hours)
+    times, out = _integrate(px.ravel(), py.ravel(), alpha.ravel(), noise, current, wind, hours, dt_hours, beta)
     xy = out.reshape(times.size, K, B, 2).transpose(1, 2, 0, 3)
     return DriftEnsemble([b[0] for b in bergs], times, xy, alpha)
+
+
+def scale_ensemble_spread(ens: DriftEnsemble, factor: float) -> DriftEnsemble:
+    """Members scaled about the ensemble mean of each berg at every time: ``m + factor * (x_k - m)``.
+
+    A post-hoc spread calibration: the mean of the surviving members (and so the
+    ensemble-mean trajectory) is unchanged, and members that left the grid stay NaN.
+    """
+    if factor == 1.0:
+        return ens
+    xy = ens.xy.copy()
+    ok = np.isfinite(xy).all(-1, keepdims=True)                      # (K, B, T, 1)
+    n = ok.sum(0, keepdims=True)
+    mean = np.where(ok, xy, 0.0).sum(0, keepdims=True) / np.maximum(n, 1)
+    xy = np.where(ok, mean + factor * (xy - mean), np.nan)
+    return replace(ens, xy=xy)
 
 
 def presence_layers(ens: DriftEnsemble, grid: PolarGrid, n_layers: int, layer_hours: float,
@@ -283,17 +305,22 @@ def add_iceberg_hazard(
     velocity_noise: float = 0.03,
     radius_m: float = 5_000.0,
     dt_hours: float = 1.0,
+    beta: float = 1.0,
+    spread_factor: float = 1.0,
 ):
     """Return ``world`` with joint iceberg presence: scenario k gets drift member k.
 
     Drift uses the scenario set's own currents and winds, so the iceberg and
-    sea-ice hazards are evaluated together in each joint scenario.
+    sea-ice hazards are evaluated together in each joint scenario. ``beta`` (current
+    coupling) and ``spread_factor`` (:func:`scale_ensemble_spread`) default to the
+    uncalibrated model; calibrated values are passed explicitly.
     """
     current = ForcingField.from_scenarios_current(world)
     wind = ForcingField.from_scenarios_wind(world)
     ens = drift_ensemble(bergs, current, wind, world.n_scenarios, world.horizon_hours, rng,
                          sigma_pos_m=sigma_pos_m, alpha_range=alpha_range, velocity_noise=velocity_noise,
-                         dt_hours=dt_hours)
+                         dt_hours=dt_hours, beta=beta)
+    ens = scale_ensemble_spread(ens, spread_factor)
     pres = presence_layers(ens, world.grid, world.n_times, world.time_step_hours, radius_m)
     pres &= ~world.land[None, None]
     if world.berg is not None:

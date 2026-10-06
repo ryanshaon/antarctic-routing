@@ -1,0 +1,26 @@
+# Render Blueprint: the API only (see docs/DEPLOYMENT.md).
+# The dashboard is a static site on Vercel (frontend/). Data ingestion and bundle generation
+# are a future Render worker or cron job; nothing here holds data-service credentials.
+services:
+  - type: web
+    name: antarctic-routing-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # 1 CPU / 2 GB. A 200-scenario request on the 10 km grid peaks at about 1.3 GB.
+    # For a 512 MB instance see "Instance size" in docs/DEPLOYMENT.md.
+    plan: standard
+    healthCheckPath: /ready
+    envVars:
+      # The checksum-verified bundle built into the image from deploy/bundle.
+      - key: ANTROUTE_ARTIFACTS_DIR
+        value: /app/deploy/bundle
+      # The Vercel dashboard origin(s), e.g. https://antarctic-routing.vercel.app (no trailing slash).
+      - key: ANTROUTE_CORS_ORIGINS
+        sync: false
+      - key: ANTROUTE_MAX_COMPUTE
+        value: "1"
+      - key: ANTROUTE_MAX_SCENARIO_CELLS
+        value: "6000000"
+      - key: ANTROUTE_LOG_LEVEL
+        value: INFO

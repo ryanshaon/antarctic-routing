@@ -1,8 +1,10 @@
 # 🧊 Antarctic Vessel Routing & Ice-Risk Forecasting System
 
-**Uncertainty-aware route and departure planning for Antarctic voyages.** The system turns ensembles of sea-ice forecasts into a *route-level* risk estimate, then finds the cheapest route and the earliest departure date that **demonstrably** stays within a stated risk budget.
+**Uncertainty-aware route and departure planning for Antarctic voyages.** The system turns ensembles of sea-ice forecasts into a *route-level* risk estimate, then finds the cheapest route and the earliest departure date whose risk stays within a stated budget **under the modelled scenarios**.
 
-> ⚠️ **Research and decision-support prototype - not a certified navigation system.** Antarctic operations require authoritative ice information, vessel-specific operating limits, applicable ice-class guidance and qualified human oversight. All results shown below use **controlled-synthetic** data and are labelled as such in every output.
+> ⚠️ **This system is a research/decision-support prototype and is not certified for navigation or safety-critical operational use.** Antarctic operations require authoritative ice information, vessel-specific operating limits, applicable ice-class guidance and qualified human oversight.
+>
+> The figures and tables in the Phase 1-4 sections below use **controlled-synthetic** data and are labelled as such. Real-data results (OSI SAF sea ice, ERA5 winds, CMEMS currents, USNIC icebergs) are summarised in [Real-data status](#-real-data-status) with their limitations.
 
 ### 🏁 Headline result (controlled-synthetic backtest, 20 voyages, 5 held-out seasons)
 
@@ -12,7 +14,7 @@
 | Fixed 50 km ice-edge buffer | 0% | 0 h | 12.8 d |
 | **This system** | **0%** | **0 h** | **8.3 d** |
 
-It is as safe as the conservative buffer rule and finishes voyages **4.5 days sooner**. Its predicted risk at departure (mean P(breach) 0.3%, 95% upper bound 3.7%) is consistent with the realised 0 of 20 breaches.
+On this synthetic backtest it had no breaches, like the conservative buffer rule, and finished voyages **4.5 days sooner**. Its predicted risk at departure (mean P(breach) 0.3%, 95% upper bound 3.7%) is consistent with the realised 0 of 20 breaches. Synthetic results are not evidence of real-world skill.
 
 ![Dashboard](docs/images/dashboard_plan.png)
 
@@ -23,18 +25,18 @@ It is as safe as the conservative buffer rule and finishes voyages **4.5 days so
 | | Typical ice routing | This system |
 |---|---|---|
 | **Risk** | Per-cell probabilities multiplied as if independent | Each route is *sailed through every joint scenario*, so P(breach) respects spatial/temporal correlation |
-| **Safety claim** | "P = 3%, looks fine" | A route is accepted only if the **Wilson upper bound** on P(breach) is within budget, so the scenario sample must *prove* compliance |
+| **Risk claim** | "P = 3%, looks fine" | A route is accepted only if the **Wilson upper bound** on P(breach) is within budget, so the scenario sample must support compliance (within the modelled scenarios, not a guarantee) |
 | **Question answered** | "Which route?" | "**When** should we leave, **and** which route?" - a departure-window sweep with a pre-declared selection rule |
 | **Honesty** | Always returns a route | Returns **`infeasible`** with a diagnosis (e.g. *"the destination itself is iced in 40% of scenarios"*) |
-| **Forecast** | One deterministic map | Residual U-Net (beats persistence, damped persistence and climatology at every lead 1-7 d) + **calibrated** hazard probabilities |
-| **Icebergs** | Static danger zones | Physics drift ensemble (dx/dt = u<sub>o</sub> + αu<sub>a</sub>) joined to the *same* joint scenarios as sea ice |
+| **Forecast** | One deterministic map | Residual U-Net ensembles. On synthetic data it beats every baseline; on **real** OSI SAF data it beats damped persistence and climatology but **not persistence** in a statistically trusted way. Per-cell probability calibration exists but is **not** used in route risk |
+| **Icebergs** | Static danger zones | Physics drift ensemble (dx/dt = βu<sub>o</sub> + αu<sub>a</sub>; real-data calibrated β = 0.1, spread factor 0.6053) joined to the *same* joint scenarios as sea ice |
 | **Provenance** | - | Every stage emits a `StageResult` with checksums and `real` / `controlled_synthetic` / `modelled` labels; missing data = `blocked`, never faked |
 
 ---
 
 ## 📸 Demo (controlled-synthetic data)
 
-**Departure-window planner.** The ice edge retreats through December. Dates before 20 Dec fail the 5% budget (red), and the planner selects the **earliest date that demonstrably passes** (green line).
+**Departure-window planner.** The ice edge retreats through December. Dates before 20 Dec fail the 5% budget (red), and the planner selects the **earliest date whose Wilson upper bound passes** (green line).
 
 ![Departure window](docs/images/departure_chart.png)
 
@@ -81,7 +83,7 @@ MAE of concentration fraction on identical samples and ocean cells. The **direct
 
 On this synthetic history the U-Net keeps significant skill through day 14, so the horizon is reported as **≥ 14 d (limited by the evaluated leads)**, not as a measured end point. The margin over climatology shrinks with lead (0.022 → 0.007), and real sea ice should give a much shorter horizon.
 
-**Departure window from one forecast.** Forecast issued 28 Nov 2023 (held-out season), 200 joint scenarios, departures +0 … +13 d. Only the next three days demonstrably meet the 5% budget. Later dates get *riskier* even though the ice is retreating, because forecast uncertainty grows with lead time. The planner selects **today**.
+**Departure window from one forecast.** Forecast issued 28 Nov 2023 (held-out season), 200 joint scenarios, departures +0 … +13 d. Only the next three days meet the 5% budget under the Wilson upper bound. Later dates get *riskier* even though the ice is retreating, because forecast uncertainty grows with lead time. The planner selects **today**.
 
 ![Departure window](docs/images/departure_window.png)
 
@@ -117,8 +119,13 @@ The planner's mean predicted P(breach) at departure was 0.3% (95% upper bound 3.
 ![Sensitivity](docs/images/sensitivity.png)
 
 **Product.**
-- **FastAPI backend:** jobs for long runs, voyage replan/history/export, 422/409/400 errors with reasons.
+- **FastAPI backend:** jobs for long runs, voyage replan/history/export, 422/409/400 errors with reasons; `/status`, `/versions`, `/provenance` and read-only `/real/*` endpoints for a verified real-data bundle.
+- **Chosen origin/destination (Real Historical Data):** preset or lat/lon locations snapped to the nearest navigable 25 km cell, with a route-specific forecast horizon; see [docs/LOCATIONS.md](docs/LOCATIONS.md).
+- **One-call plan (`POST /real/plan`, Real Historical Data):** route, recommended departure, ETA, distance, fuel index, sea-ice / iceberg / combined risk and a daily timeline in one response, with hindsight-forcing disclosure; see [docs/PLAN_API.md](docs/PLAN_API.md).
+- **Voyage simulation (`POST /real/simulate`, Real Historical Data):** the planned voyage sailed day by day through the observed sea ice, with a new real forecast and the existing replanning rules each day, as playback frames; see [docs/SIMULATE_API.md](docs/SIMULATE_API.md).
+- **Additional historical season (Real Historical Data):** the separate OSI-430-a v3.0 2024-25 sea-ice file is listed under `sea_ice_additional` in `config/real_historical.json` (with its 2024-25 ERA5, CMEMS and USNIC files) and appended in memory after the frozen file. The frozen file, checkpoint and calibration are unchanged. 2024-25 is labelled an independent evaluation season.
 - **Web dashboard:** no external dependencies, light/dark, phone-width. Verified in Chromium with Playwright: every tab exercised, no console errors.
+- **Forecast mode (future dates, e.g. 2026-11-19):** dates after the real archive are planned and simulated as a labelled *Forecast / hackathon estimate* from an analogue season (proxy sea ice and ERA5/CMEMS forcing, latest official USNIC list with calibrated drift). Any other future date (off season or years ahead, e.g. 2027-08-14 or 2030-08-14) gets a *historical seasonal analogue*: real sea ice, winds, currents and icebergs of the same calendar days in earlier years, with the analogue dates and a confidence level recorded. Neither is an operational forecast. See [docs/FORECAST_MODE.md](docs/FORECAST_MODE.md).
 - **PDF voyage brief:** [example](docs/voyage_brief_example.pdf).
 - **Docker image:** built and smoke-tested in CI.
 
@@ -127,6 +134,19 @@ The planner's mean predicted P(breach) at departure was 0.3% (95% upper bound 3.
 | ![Window](docs/images/dashboard_window.png) | ![Voyage](docs/images/dashboard_voyage.png) |
 
 ---
+
+## 🌍 Real-data status
+
+| Component | Real data used | Result | Honest limitation |
+|---|---|---|---|
+| Sea ice | OSI SAF OSI-450-a / OSI-430-a, 2004-2024, 25 km EPSG:3031 | Residual U-Net, test MAE 0.0093 vs persistence 0.0110 | Trust horizon **0 d vs persistence** |
+| Winds / currents | ERA5 u10/v10; CMEMS GLORYS12V1 uo/vo at 0.494 m, daily | Used by the drift model and route speeds | Daily, 25 km, surface layer only |
+| Icebergs | USNIC weekly lists 2018-2025 | Calibrated drift beats the original physics; coverage near nominal | Only slightly better than "no movement" on position |
+| Frozen demo | Forecast issued 2023-11-14, 200 joint scenarios | Depart 2023-11-14, 37.5 h, fuel index 837.8, 0/200 breaches, Wilson UB 1.88% | One window; 1.88% is the 0-of-200 floor, not skill |
+
+The frozen demo is reproducible: `scripts/reproduce_frozen_demo.py` checks every input checksum, re-runs the planner with real forcing required, and compares the result with [`docs/frozen_demo/frozen_demo_2023-11-14.json`](docs/frozen_demo/frozen_demo_2023-11-14.json). See [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
+
+**No silent fallbacks.** Missing dates, files or credentials are errors or `blocked` results. Real sea ice with schematic forcing is labelled `mixed`/`schematic`, printed as a warning, and refused under `--require-real-forcing`. The API's interactive planner runs on the synthetic world and labels every response `controlled_synthetic`; real results are served only from a checksum-verified bundle, and the dashboard shows **Real / Historical / Forecast / Schematic / Unavailable** badges for every source.
 
 ## 🚀 Quickstart
 
@@ -164,6 +184,11 @@ antroute sensitivity --departure 2026-12-17
 antroute brief --departure 2026-12-24 --out reports/voyage_brief.pdf
 pip install -e ".[api]" && antroute serve        # dashboard: http://127.0.0.1:8000  API docs: /docs
 
+# Real-data frozen demo (needs the real inputs; never committed to Git)
+ANTROUTE_DATA_ROOT=/path/to/real-data python scripts/reproduce_frozen_demo.py \
+    --out reports/frozen-demo --bundle artifacts/bundle
+ANTROUTE_ARTIFACTS_DIR=artifacts/bundle antroute serve   # dashboard "Real-data demo" tab
+
 python -m pytest                                 # full test suite
 ```
 
@@ -175,7 +200,9 @@ python -m pytest                                 # full test suite
 docker compose up --build        # dashboard + API on http://localhost:8000
 ```
 
-`data/`, `models/` and `reports/` are mounted as volumes. Pass Copernicus credentials as environment variables; never commit them.
+The default image is the API and dashboard only (no PyTorch, no data clients). It can serve the verified real-data bundle built in from `deploy/bundle` (`ANTROUTE_ARTIFACTS_DIR=/app/deploy/bundle`) or one mounted read-only at `/app/bundle` (see `.env.example`). `docker build --target worker` builds the batch image with CPU PyTorch and the CDS/CMEMS clients for the CLI. Neither image contains datasets, weights or credentials. Pass Copernicus credentials as environment variables to ingestion workers only; never commit them.
+
+Hosted deployment (dashboard on Vercel from `frontend/`, API on Render from `render.yaml`): [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ### 🧰 Command reference
 
@@ -189,7 +216,7 @@ docker compose up --build        # dashboard + API on http://localhost:8000
 | `plan-window` | 8 | Departure window from one forecast issue |
 | `replay` | 9 | Day-by-day voyage replay with replanning and audit log |
 | `backtest`, `sensitivity` | 10 | Multi-season backtest vs baselines; fuel/speed sensitivity |
-| `brief`, `serve` | 11 | PDF voyage brief; API + dashboard |
+| `brief`, `serve` | 11 | PDF voyage brief; API + dashboard (`--artifacts-dir` serves a real-data bundle) |
 
 ---
 
@@ -291,18 +318,21 @@ tests/                      hand-calculated values, behavioural routing worlds, 
 2. **Phase 2 ✅** OSI SAF reader, residual U-Net vs baselines per lead, calibrated probabilities, iceberg drift ensembles in route risk. *Pending:* first run on real OSI SAF/ERA5/CMEMS data.
 3. **Phase 3 ✅** U-Net ensembles drive the router, climatology-anomaly scenarios beyond the horizon, trust horizon (season-blocked bootstrap), departure window from one forecast issue, replanning with an audit log, day-by-day replay.
 4. **Phase 4 ✅** replay backtest vs naive and ice-edge-buffer baselines, fuel/speed sensitivity, FastAPI, web dashboard, PDF brief, Docker.
-5. **Next (needs internet access):** run the full pipeline on real OSI SAF + ERA5 + CMEMS data; re-measure skill, trust horizon and backtest on real seasons; replace placeholder vessel limits with verified values; add PostGIS persistence for multi-user voyages.
+5. **Real data (in progress):** real OSI SAF sea ice (20 seasons), U-Net trained and evaluated on real seasons, ERA5/CMEMS forcing, USNIC iceberg drift calibrated and confirmed out of sample, frozen real-data demo reproduced byte-for-byte. *Still open:* real-season backtests, verified vessel limits, persistent voyage storage, deployment (see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)).
 
 ## 📚 Related work
 
 - **PolarRoute / MeshiPhi** (British Antarctic Survey): open-source polar route planning on adaptive meshes.
 - **IceNet** (Andersson et al., 2021, *Nature Communications*): deep-learning seasonal sea-ice forecasting.
 
-This project focuses on what sits between them: turning *forecast uncertainty* into a **certified route-level risk budget** and a **departure-date decision**.
+This project focuses on what sits between them: turning *forecast uncertainty* into a **statistically bounded route-level risk estimate** (Wilson upper bound over joint scenarios) and a **departure-date decision**. The bound is only as good as the scenarios; it is not a certification.
 
 ## ⚖️ Limitations
 
-- Results shown are **controlled-synthetic**; no real-world skill is claimed yet. Synthetic dynamics are simpler than real sea ice, so real-data skill margins will be smaller.
-- Ingestion clients are unit-tested with injected fetchers but have **not yet been run against the live services** (the development sandbox blocks outbound access to them).
-- Vessel parameters (`ice_class`, limit τ<sub>v</sub>, speed reduction, fuel λ) are **placeholders**. See [`docs/ASSUMPTIONS.md`](docs/ASSUMPTIONS.md).
-- USNIC tracks only giant icebergs; small-berg encounter risk is out of scope until SAR detection is added.
+- **Not certified.** Research/decision-support prototype only; not for navigation or safety-critical operational use.
+- **Forecast skill on real data is limited.** The real-data trust horizon is **0 days against persistence** (21 days against damped persistence and climatology).
+- **Probability calibration is not used in route risk.** The isotonic per-cell calibrator is validated, but route risk counts breaches over joint scenarios with a Wilson bound. A route result is not evidence that calibrated probabilities are used.
+- **Iceberg drift skill is modest.** On position it is only slightly better than assuming no movement; its demonstrated value is probabilistic (coverage near nominal), confirmed on only 5-6 independent tracks. USNIC positions are weekly and cover only large icebergs.
+- **Vessel parameters are placeholders**: a generic vessel and a placeholder ice class (`REPLACE_WITH_VERIFIED_CLASS`); fuel is an index. See [`docs/ASSUMPTIONS.md`](docs/ASSUMPTIONS.md).
+- **Forcing resolution**: winds and currents are daily on a 25 km grid; currents are at 0.5 m depth, not keel depth.
+- **Synthetic figures.** The Phase 1-4 figures are controlled-synthetic; synthetic dynamics are simpler than real sea ice.

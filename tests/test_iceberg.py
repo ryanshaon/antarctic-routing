@@ -175,3 +175,39 @@ def test_router_avoids_an_iceberg_on_the_direct_line():
     assert shortest.evaluation.p_breach == 1.0
     assert result.status == "feasible" and result.recommended.evaluation.p_breach == 0.0
     assert (r, c) not in result.recommended.route.cells
+
+
+def test_spread_scaling_keeps_the_ensemble_mean_trajectory(grid):
+    from antarctic_routing.iceberg.drift import scale_ensemble_spread
+
+    current = ForcingField.constant(grid, u=0.1, v=0.05, hours=48)
+    ens = drift_ensemble([("A", -60.0, -60.0), ("B", -62.0, -58.0)], current, None, 30, 48,
+                         np.random.default_rng(1), beta=0.1)
+    ens.xy[3, 0, 10:] = np.nan                                     # one member leaves the grid
+    out = scale_ensemble_spread(ens, 0.6053)
+    np.testing.assert_allclose(np.nanmean(out.xy, 0), np.nanmean(ens.xy, 0), rtol=0, atol=1e-6)
+    np.testing.assert_array_equal(np.isnan(out.xy), np.isnan(ens.xy))
+    dev_in = ens.xy - np.nanmean(ens.xy, 0, keepdims=True)
+    np.testing.assert_allclose(out.xy - np.nanmean(out.xy, 0, keepdims=True), 0.6053 * dev_in, atol=1e-6)
+    assert scale_ensemble_spread(ens, 1.0) is ens
+
+
+def test_add_iceberg_hazard_defaults_are_the_uncalibrated_model():
+    from datetime import date
+    from pathlib import Path
+
+    from antarctic_routing.config import load_config
+    from antarctic_routing.iceberg.drift import add_iceberg_hazard
+    from antarctic_routing.synthetic import generate_synthetic
+
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "config.yaml")
+    g = PolarGrid.from_domain(cfg.domain, resolution_km=25)
+    world = generate_synthetic(cfg, g, date(2026, 12, 20), n_days=4, n_scenarios=40, seed=0)
+    bergs = [("A23A", -60.5, -62.0)]
+    a = add_iceberg_hazard(world, bergs, rng=np.random.default_rng(0), radius_m=10_000)
+    b = add_iceberg_hazard(world, bergs, rng=np.random.default_rng(0), radius_m=10_000, beta=1.0,
+                           alpha_range=(0.01, 0.03), spread_factor=1.0)
+    c = add_iceberg_hazard(world, bergs, rng=np.random.default_rng(0), radius_m=10_000, beta=0.1,
+                           alpha_range=(0.001, 0.003), spread_factor=0.6053)
+    np.testing.assert_array_equal(a.berg, b.berg)
+    assert c.berg[:, -1].sum() < a.berg[:, -1].sum()               # damped, tighter cloud covers fewer cells

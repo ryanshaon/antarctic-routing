@@ -2,7 +2,7 @@
 
 Every method is scored on identical test samples, cells and lead times:
 
-* MAE / RMSE over valid ocean cells;
+* MAE / RMSE over valid cells: ocean AND NOT imputed on the target day;
 * IIEE (integrated ice-edge error, Goessling et al. 2016): true area where
   forecast and observation disagree on C >= tau_e, in km^2;
 * skill vs a baseline: Delta(h) = E_baseline(h) - E_model(h) (> 0 is better).
@@ -21,7 +21,7 @@ import xarray as xr
 from pyproj import Proj
 
 from antarctic_routing.forecasting.baselines import damped_anomaly_persistence, fit_anomaly_decay
-from antarctic_routing.forecasting.dataset import SequenceDataset, build_samples, issue_seasons
+from antarctic_routing.forecasting.dataset import SequenceDataset, build_samples, issue_seasons, valid_target_mask
 from antarctic_routing.preprocessing.climatology import Climatology, season_of
 
 Predictor = Callable[[np.ndarray, Sequence[int]], np.ndarray]
@@ -36,8 +36,14 @@ def true_cell_area_km2(ds: xr.Dataset) -> np.ndarray:
 
 
 def fit_baselines(ds: xr.Dataset, train_seasons: Sequence[int], season_months: Sequence[int]):
+    """Climatology and damped-persistence rho from training seasons, observed ocean cells only.
+
+    Cells that are land or imputed on a given day are set to NaN before fitting, so
+    they contribute neither to the climatology nor to the anomaly pairs behind rho
+    (the same ``ocean AND NOT imputed`` definition used for scoring).
+    """
     days = [np.datetime64(t, "D").astype(object) for t in ds["time"].values]
-    conc = ds["ice_concentration"].values.astype(float)
+    conc = np.where(valid_target_mask(ds), ds["ice_concentration"].values.astype(float), np.nan)
     clim = Climatology.fit(conc, days, train_seasons, season_months, window_days=7)
     segments = []
     for s in sorted(set(train_seasons)):
@@ -71,7 +77,7 @@ def evaluate_forecasts(
     seq = SequenceDataset(ds, idx, history_days, lead_days, season_months)
     obs_all = ds["ice_concentration"].values.astype(float)
     days = [np.datetime64(t, "D").astype(object) for t in ds["time"].values]
-    ocean = ~ds["land_mask"].values.astype(bool)
+    scoreable = valid_target_mask(ds)  # (T, ny, nx): ocean and not imputed
     area = true_cell_area_km2(ds)
     methods = [model_name, *BASELINES]
     H = lead_days
@@ -96,7 +102,7 @@ def evaluate_forecasts(
                     "damped_persistence": damped_anomaly_persistence(c_t, days[t], h, clim, rho),
                 }
                 for m, p in preds.items():
-                    valid = ocean & np.isfinite(p) & np.isfinite(obs)
+                    valid = scoreable[t + h] & np.isfinite(p) & np.isfinite(obs)
                     err = p[valid] - obs[valid]
                     sums[m][0, h - 1] += np.abs(err).sum()
                     sums[m][1, h - 1] += (err**2).sum()

@@ -8,8 +8,20 @@ services:
       - ./data:/app/data          # downloaded and harmonised data
       - ./models:/app/models      # trained checkpoints
       - ./reports:/app/reports    # CLI reports
+      # Verified real-data bundle (scripts/reproduce_frozen_demo.py --bundle), served read-only.
+      - ${ANTROUTE_BUNDLE_HOST_DIR:-./artifacts/bundle}:/app/bundle:ro
+    # Values come from the shell or a git-ignored .env (see .env.example). Only the API's own
+    # settings are passed in: data-service credentials belong to ingestion workers, not this service.
     environment:
-      # Copernicus credentials for ingestion (never commit them):
-      # CDSAPI_URL, CDSAPI_KEY, COPERNICUSMARINE_SERVICE_USERNAME, COPERNICUSMARINE_SERVICE_PASSWORD
       - ANTROUTE_CONFIG=/app/config/config.yaml
+      # Empty = no real-data bundle (the dashboard says "Unavailable"). Set to /app/bundle to serve one.
+      - ANTROUTE_ARTIFACTS_DIR=${ANTROUTE_ARTIFACTS_DIR:-}
+      - ANTROUTE_CORS_ORIGINS=${ANTROUTE_CORS_ORIGINS:-}
+      - ANTROUTE_MAX_JOBS=${ANTROUTE_MAX_JOBS:-200}
+      - ANTROUTE_MAX_VOYAGES=${ANTROUTE_MAX_VOYAGES:-100}
+      - ANTROUTE_MAX_SCENARIO_CELLS=${ANTROUTE_MAX_SCENARIO_CELLS:-6000000}
+      - ANTROUTE_MAX_COMPUTE=${ANTROUTE_MAX_COMPUTE:-2}
+      - ANTROUTE_MAX_BODY_BYTES=${ANTROUTE_MAX_BODY_BYTES:-65536}
+      - ANTROUTE_LOG_LEVEL=${ANTROUTE_LOG_LEVEL:-INFO}
+      - ANTROUTE_GIT_COMMIT=${ANTROUTE_GIT_COMMIT:-}
     restart: unless-stopped

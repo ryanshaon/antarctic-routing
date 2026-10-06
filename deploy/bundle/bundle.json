@@ -1,0 +1,37 @@
+{
+  "bundle_id": "frozen_demo-2023-11-14-659bcedf3cef",
+  "created_utc": "2026-10-04T09:03:48.122Z",
+  "execution_mode": "real",
+  "files": {
+    "departure_window.png": {
+      "bytes": 108602,
+      "sha256": "73a400d1af2145243681392c28b9159009a1b3993456a5b3489a5d6d7b4b175d"
+    },
+    "forecast_maps.json": {
+      "bytes": 658289,
+      "sha256": "d53d972a5fbefe0fdebe2a43875d866108777ead16e49605addfe0787ee02a6d"
+    },
+    "manifest.json": {
+      "bytes": 5266,
+      "sha256": "f196ce3c2b3c31ac2dcf9dc65f80f8002a179668cb4d3ab3c9281c2e39129307"
+    },
+    "plan_window.json": {
+      "bytes": 22445,
+      "sha256": "d837b57c23e45065c9b4ec7c76ad12fb6b36c41736d94459365769f28908beb2"
+    }
+  },
+  "issue": "2023-11-14",
+  "kind": "frozen_demo",
+  "limitations": [
+    "Research / decision-support prototype; not certified for navigation or safety-critical operational use.",
+    "The sea-ice forecast does not beat persistence in a statistically trusted way: trust horizon 0 days against persistence (21 days against damped persistence and climatology).",
+    "Iceberg drift is only slightly better than assuming no movement on position; its demonstrated value is probabilistic (coverage near nominal), confirmed on 5-6 tracks in 2024-25.",
+    "The vessel is a generic polar research vessel and its ice class is a placeholder (REPLACE_WITH_VERIFIED_CLASS); fuel is an index, not tonnes.",
+    "The isotonic forecast-probability calibrator is validated for per-cell P(C >= 0.15) but is NOT applied to route risk; route risk counts breaches over joint scenarios with a Wilson bound.",
+    "This end-to-end result is not evidence that calibrated probabilities are used, and the 1.88 % Wilson bound is the floor for 0 breaches in 200 scenarios, not evidence of forecast skill.",
+    "One demonstration window only; USNIC positions are weekly and currents are daily at 0.5 m depth on a 25 km grid."
+  ],
+  "plan_window_canonical_sha256": "659bcedf3cef50f6d11e49432b3073c2b69295f04f5b01618ee25881379e7430",
+  "schema": "antroute-bundle/1",
+  "source_plan_window_sha256": "0d6ef85abec8e170ee324d9414286e9b8ac0f66fc65953bf012d245db7d182a5"
+}

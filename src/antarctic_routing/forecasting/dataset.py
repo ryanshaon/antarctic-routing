@@ -9,6 +9,11 @@ A sample is valid only if its whole window (t-L+1 .. t+H) is daily-contiguous
 and inside a single season, so no sample straddles the austral winter gap.
 Concentration is already a 0-1 fraction, so no data-derived normalisation is
 needed (and therefore none can leak from validation/test seasons).
+
+Scoring mask: a target cell counts only if it is ocean and was observed, i.e.
+``valid = ~land_mask & ~imputed_mask`` for that target day. Gap-filled
+(imputed) values stay in the inputs exactly as stored, but are never scored as
+truth. Datasets without ``imputed_mask`` are treated as fully observed.
 """
 
 from __future__ import annotations
@@ -42,6 +47,18 @@ def build_samples(ds: xr.Dataset, history_days: int, lead_days: int, season_mont
     return out
 
 
+def imputed_mask(ds: xr.Dataset) -> np.ndarray:
+    """(T, ny, nx) bool, True where the value was gap-filled; all False if the variable is absent."""
+    if "imputed_mask" in ds:
+        return ds["imputed_mask"].values.astype(bool)
+    return np.zeros((ds.sizes["time"], *ds["land_mask"].shape), bool)
+
+
+def valid_target_mask(ds: xr.Dataset) -> np.ndarray:
+    """(T, ny, nx) bool scoring mask: ocean AND NOT imputed."""
+    return ~ds["land_mask"].values.astype(bool)[None] & ~imputed_mask(ds)
+
+
 def issue_seasons(ds: xr.Dataset, indices: Sequence[int], season_months: Sequence[int]) -> list[int | None]:
     days = _days(ds)
     return [season_of(days[t], season_months) for t in indices]
@@ -58,7 +75,7 @@ class SequenceDataset(Dataset):
     ) -> None:
         self.conc = np.nan_to_num(ds["ice_concentration"].values.astype(np.float32), nan=0.0)
         self.land = ds["land_mask"].values.astype(bool)
-        self.mask = torch.from_numpy(~self.land)
+        self.valid = valid_target_mask(ds)
         self.indices = list(indices)
         self.L, self.H = history_days, lead_days
         days = _days(ds)
@@ -79,9 +96,14 @@ class SequenceDataset(Dataset):
     def targets(self, t: int) -> np.ndarray:
         return self.conc[t + 1: t + self.H + 1]
 
+    def target_mask(self, t: int) -> np.ndarray:
+        """(H, ny, nx) bool: which target cells may be scored (ocean and not imputed)."""
+        return self.valid[t + 1: t + self.H + 1]
+
     def __len__(self) -> int:
         return len(self.indices)
 
     def __getitem__(self, i: int):
         t = self.indices[i]
-        return torch.from_numpy(self.inputs(t)), torch.from_numpy(self.targets(t)), self.mask
+        x, y, m = self.inputs(t), self.targets(t), self.target_mask(t)
+        return torch.from_numpy(x), torch.from_numpy(y), torch.from_numpy(np.ascontiguousarray(m))
