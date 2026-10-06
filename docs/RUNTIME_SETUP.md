@@ -21,7 +21,7 @@ Clone with `core.autocrlf=false`. `config/config.yaml` and the files in `deploy/
 and Windows line-ending conversion would change their bytes so the checks fail.
 
 ```bash
-git clone -c core.autocrlf=false --branch real-data/interactive-historical-mode \
+git clone -c core.autocrlf=false https://github.com/ryanshaon/antarctic-routing
 cd antarctic-routing
 ```
 
