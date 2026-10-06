@@ -32,14 +32,14 @@ def test_frontend_build_points_the_dashboard_at_the_api_and_nothing_else(tmp_pat
     secrets = {k: f"sentinel-{k.lower()}" for k in CREDENTIALS}
     r = build(tmp_path / "dist", "https://api.example.org/", **secrets)
     assert r.returncode == 0, r.stderr
-    html = (tmp_path / "dist" / "index.html").read_text()
+    html = (tmp_path / "dist" / "index.html").read_text(encoding="utf-8")
     assert '<meta name="antroute-api-base" content="https://api.example.org">' in html
     csp = re.search(r'http-equiv="Content-Security-Policy" content="([^"]+)"', html).group(1)
     assert "connect-src 'self' https://api.example.org" in csp and "img-src 'self' data: https://api.example.org" in csp
     assert "unsafe" not in csp
     for name in ("app.js", "style.css"):
         assert (tmp_path / "dist" / "static" / name).read_bytes() == (DASHBOARD / name).read_bytes()
-    built = "".join(p.read_text() for p in (tmp_path / "dist").rglob("*") if p.is_file())
+    built = "".join(p.read_text(encoding="utf-8") for p in (tmp_path / "dist").rglob("*") if p.is_file())
     assert not [v for v in secrets.values() if v in built]
 
 
@@ -64,7 +64,7 @@ def test_api_reads_and_returns_no_data_service_credentials(monkeypatch):
     with TestClient(create_app(CONFIG)) as c:
         body = "".join(c.get(p).text for p in ("/health", "/ready", "/status", "/versions", "/config"))
     assert not [v for v in secrets.values() if v in body]
-    api_code = "".join(p.read_text() for p in (ROOT / "src" / "antarctic_routing" / "api").glob("*.py"))
+    api_code = "".join(p.read_text(encoding="utf-8") for p in (ROOT / "src" / "antarctic_routing" / "api").glob("*.py"))
     assert not [k for k in CREDENTIALS if k in api_code]
 
 
@@ -86,11 +86,11 @@ def test_api_starts_without_pytorch():
 
 
 def test_deployment_files_keep_credentials_and_data_out():
-    ignored = (ROOT / ".dockerignore").read_text().split()
+    ignored = (ROOT / ".dockerignore").read_text(encoding="utf-8").split()
     assert {".env", ".env.*", ".cdsapirc", "*.nc", "*.pt", "data", "models"} <= set(ignored)
-    render = (ROOT / "render.yaml").read_text()
+    render = (ROOT / "render.yaml").read_text(encoding="utf-8")
     assert "healthCheckPath: /ready" in render and not [k for k in CREDENTIALS if k in render]
-    dockerfile = (ROOT / "Dockerfile").read_text()
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     api_stage = dockerfile[dockerfile.index("FROM python AS api"):]
     assert "torch" not in api_stage and "cdsapi" not in api_stage and "${PORT:-8000}" in api_stage
     assert not re.search(r"^\s*(ENV|ARG)\s+\S*(KEY|PASSWORD|TOKEN|SECRET)", dockerfile, re.M | re.I)
