@@ -64,7 +64,7 @@ endpoint and `/ready` return 503 with the reason, and the dashboard shows "Unava
 
 ## 4. Render: the API
 
-1. In Render: **New → Blueprint**, connect `HarshKunap/antarctic-routing` and pick the branch. Render reads
+1. In Render: **New → Blueprint**, connect `ryanshaon/antarctic-routing` and pick the branch. Render reads
    `render.yaml`, which creates:
    - one web service, `antarctic-routing-api`;
    - Docker runtime from `./Dockerfile`, context `.`;
@@ -120,7 +120,7 @@ These figures were measured on the API image:
 
 ## 5. Vercel: the dashboard
 
-1. In Vercel: **Add New → Project**, import `HarshKunap/antarctic-routing`.
+1. In Vercel: **Add New → Project**, import `ryanshaon/antarctic-routing`.
 2. **Root Directory: `frontend`.** `frontend/vercel.json` then sets:
    - framework: none;
    - install: `npm install` (there are no dependencies);

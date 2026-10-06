@@ -9,8 +9,8 @@ application reads local files. It does not contact Copernicus, ECMWF, OSI SAF or
 
 | Item | Value |
 |---|---|
-| Code | `https://github.com/HarshKunap/antarctic-routing`, branch `real-data/interactive-historical-mode`, commit `2115ddb` or later |
-| Runtime release | tag `runtime-2115ddb`: <https://github.com/HarshKunap/antarctic-routing/releases/tag/runtime-2115ddb> |
+| Code | `https://github.com/ryanshaon/antarctic-routing`, branch `main` |
+| Runtime release | tag `runtime-2115ddb`: <https://github.com/ryanshaon/antarctic-routing/releases/tag/runtime-2115ddb> |
 | Archive | `antroute-real-data-runtime-full-2115ddb.zip`: 161 MB download, 262 MB extracted, 198 data files |
 | Archive SHA-256 | `6de9a2cd826f20bf68f1bcf4715aa2849bab7187873010921213a41c1dd994b8` |
 | Python | 3.11 or newer |
@@ -22,7 +22,6 @@ and Windows line-ending conversion would change their bytes so the checks fail.
 
 ```bash
 git clone -c core.autocrlf=false --branch real-data/interactive-historical-mode \
-    https://github.com/HarshKunap/antarctic-routing
 cd antarctic-routing
 ```
 
