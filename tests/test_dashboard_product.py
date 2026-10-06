@@ -22,11 +22,11 @@ NODE = shutil.which("node")
 
 
 def _html() -> str:
-    return (DASH / "index.html").read_text()
+    return (DASH / "index.html").read_text(encoding="utf-8")
 
 
 def _js() -> str:
-    return (DASH / "app.js").read_text()
+    return (DASH / "app.js").read_text(encoding="utf-8")
 
 
 def test_plan_route_is_the_default_page_and_the_primary_nav_has_only_the_product():

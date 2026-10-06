@@ -1,4 +1,6 @@
-"""Real Historical Data on the real archive: the API reproduces the frozen 2023-11-14 run exactly.
+"""Real Historical Data on the real archive: the API reproduces the frozen 2023-11-14 run.
+
+Floats are compared to a relative 1e-9: the last digits depend on the platform and PyTorch build.
 
 Runs only where the real-data archive (``ANTROUTE_DATA_ROOT``, default /mnt/project-files/real-data) and
 PyTorch are present; the inputs are kept outside Git.
@@ -21,6 +23,17 @@ REAL_DATA = Path(os.environ.get("ANTROUTE_DATA_ROOT", "/mnt/project-files/real-d
 SPEC = json.loads((REPO / "config" / "real_historical.json").read_text())
 FROZEN = json.loads((REPO / "docs" / "frozen_demo" / "frozen_demo_2023-11-14.json").read_text())
 FROZEN_WINDOW = json.loads((REPO / "deploy" / "bundle" / "plan_window.json").read_text())
+
+WINDOW_KEYS = ("departure", "feasible", "expected_hours", "expected_fuel", "p_breach", "p_breach_upper", "lead_days",
+               "forecast_fraction", "support")
+
+
+def assert_matches_frozen_window(options):
+    assert len(options) == len(FROZEN_WINDOW["options"])
+    for got, want in zip(options, FROZEN_WINDOW["options"], strict=True):
+        for k in WINDOW_KEYS:
+            assert got[k] == (pytest.approx(want[k], rel=1e-9) if isinstance(want[k], float) else want[k]), k
+
 
 pytestmark = pytest.mark.skipif(
     not (REAL_DATA / SPEC["inputs"]["sea_ice"]["path"]).is_file() or importlib.util.find_spec("torch") is None,
@@ -62,8 +75,8 @@ def test_route_reproduces_the_frozen_selected_route(client):
     res = r["result"]
     rec = res["candidates"][res["recommended_index"]]
     exp = FROZEN["expected"]
-    assert (rec["expected_hours"], rec["expected_fuel"], rec["distance_km"], rec["p_breach_upper"]) == \
-        (exp["expected_hours"], exp["expected_fuel"], exp["distance_km"], exp["p_breach_upper"])
+    assert (rec["expected_hours"], rec["expected_fuel"], rec["distance_km"], rec["p_breach_upper"]) == pytest.approx(
+        (exp["expected_hours"], exp["expected_fuel"], exp["distance_km"], exp["p_breach_upper"]), rel=1e-9)
     assert rec["breaches"] == exp["breaches"] and len(rec["xy_km"]) == exp["route_cells"]
     assert (res["execution_mode"], res["data_status"], res["data_label"]) == ("real", "historical",
                                                                               "Real Historical Data")
@@ -76,10 +89,7 @@ def test_departure_window_matches_the_frozen_plan_window(client):
     r = client.post("/real/historical/departures?wait=true", json={"issue": "2023-11-14"}).json()
     assert r["status"] == "done", r.get("error")
     res = r["result"]
-    keys = ("departure", "feasible", "expected_hours", "expected_fuel", "p_breach", "p_breach_upper", "lead_days",
-            "forecast_fraction", "support")
-    assert [{k: o[k] for k in keys} for o in res["options"]] == \
-        [{k: o[k] for k in keys} for o in FROZEN_WINDOW["options"]]
+    assert_matches_frozen_window(res["options"])
     assert res["selected"] == FROZEN_WINDOW["selected"] and res["layer_source"] == FROZEN_WINDOW["layer_source"]
 
 
@@ -146,15 +156,12 @@ def test_plan_reproduces_the_frozen_run_in_one_call_and_is_deterministic(client)
     j, exp = r.json(), FROZEN["expected"]
     rt = j["route"]
     assert j["status"] == "recommended" and j["departure"]["recommended"] == "2023-11-14" == rt["departure_date"]
-    assert (rt["expected_hours"], rt["fuel_index"]["expected"], rt["distance_km"]) == \
-        (exp["expected_hours"], exp["expected_fuel"], exp["distance_km"])
-    assert (j["risk"]["combined"]["p_breach_upper"], j["risk"]["combined"]["breaches"]) == \
-        (exp["p_breach_upper"], exp["breaches"])
+    assert (rt["expected_hours"], rt["fuel_index"]["expected"], rt["distance_km"]) == pytest.approx(
+        (exp["expected_hours"], exp["expected_fuel"], exp["distance_km"]), rel=1e-9)
+    assert j["risk"]["combined"]["p_breach_upper"] == pytest.approx(exp["p_breach_upper"], rel=1e-9)
+    assert j["risk"]["combined"]["breaches"] == exp["breaches"]
     assert len(rt["latlon"]) == exp["route_cells"] and rt["eta_utc"] == "2023-11-15T13:30Z"
-    keys = ("departure", "feasible", "expected_hours", "expected_fuel", "p_breach", "p_breach_upper", "lead_days",
-            "forecast_fraction", "support")
-    assert [{k: o[k] for k in keys} for o in j["departure"]["options"]] == \
-        [{k: o[k] for k in keys} for o in FROZEN_WINDOW["options"]]
+    assert_matches_frozen_window(j["departure"]["options"])
     risk = j["risk"]
     assert risk["combined"]["breaches"] == risk["sea_ice"]["breaches"] + risk["iceberg_only_increment"]["breaches"]
     m = j["metadata"]

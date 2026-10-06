@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Antarctic Ice-Risk Routing</title>
+  <meta name="description" content="Compare Antarctic routes and departure dates under sea-ice and iceberg uncertainty. Research route planning, voyage simulation and transparent data provenance.">
   <!-- Empty = same origin as this page (served by the API). For a separately hosted dashboard,
        frontend/build.mjs fills in ANTROUTE_API_BASE; list the dashboard's origin in ANTROUTE_CORS_ORIGINS. -->
   <meta name="antroute-api-base" content="">
@@ -11,11 +12,16 @@
   <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
+<a class="skip-link" href="#tab-product">Skip to route planner</a>
 <div class="viz-root">
   <header class="topbar">
-    <div>
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><circle cx="24" cy="24" r="20"/><path d="M24 2v8m0 28v8M2 24h8m28 0h8M16 32l8-20 8 20-8-5z"/></svg>
+      <div>
+      <p class="brand-label">Antarctic research / Voyage planning</p>
       <h1>Antarctic Ice-Risk Routing</h1>
-      <p class="sub">Risk-budgeted route &amp; departure planning under forecast uncertainty</p>
+      <p class="sub">Route &amp; departure planning under forecast uncertainty</p>
+      </div>
     </div>
     <div class="badges">
       <span class="badge" id="mode-badge">LOADING DATA STATUS</span>
@@ -37,7 +43,7 @@
   <!-- ===================== PRODUCT: PLAN ROUTE ===================== -->
   <!-- Everything shown here comes from GET /real/locations, GET /real/historical/dates and one POST /real/plan;
        the page computes no risk, route or forecast of its own and never substitutes synthetic data. -->
-  <section class="tab" id="tab-product" data-view="plan">
+  <section class="tab" id="tab-product" data-view="plan" tabindex="-1" aria-label="Route planning workspace">
     <!-- Progress only: derived from the page and the plan on screen, never clickable and never a second nav. -->
     <ol class="pr-flow" id="pr-flow" aria-label="Progress">
       <li data-step="plan" class="current" aria-current="step">Plan Route</li>
@@ -48,9 +54,9 @@
     <form class="card pr-form" id="pr-form" novalidate>
       <div class="pr-form-head">
         <h2>Plan Route</h2>
-        <p class="pr-lede" id="pr-intro">Tell us where you're going and when, and we'll estimate the safest route.</p>
-        <p class="sub">The planner weighs sea ice, drifting icebergs, winds, currents and their uncertainty, compares
-          departure dates, and keeps the route within the 5% risk budget. Then simulate the voyage day by day.</p>
+        <p class="pr-lede" id="pr-intro">A considered route through uncertain waters.</p>
+        <p class="sub">Choose your endpoints and departure date. Compare routes across sea ice, drifting icebergs,
+          winds and currents against a 5% modelled risk budget.</p>
       </div>
       <div class="pr-fields">
         <div class="pr-field pr-end" data-role="origin">
@@ -58,7 +64,7 @@
           <div class="pr-end-row">
             <select name="origin" id="pr-origin" required disabled><option>Loading locations…</option></select>
             <button type="button" class="pr-pick" id="pr-pick-origin" data-pick="origin" disabled
-              aria-label="Pick the start on the map">📍 Pick on map</button>
+              aria-label="Pick the start on the map">Pick on map</button>
           </div>
           <div class="pr-coords" id="pr-origin-coords" hidden>
             <label>Lat <input type="number" id="pr-origin-lat" step="0.001" min="-90" max="90" inputmode="decimal"></label>
@@ -72,7 +78,7 @@
           <div class="pr-end-row">
             <select name="destination" id="pr-destination" required disabled><option>Loading locations…</option></select>
             <button type="button" class="pr-pick" id="pr-pick-destination" data-pick="destination" disabled
-              aria-label="Pick the destination on the map">📍 Pick on map</button>
+              aria-label="Pick the destination on the map">Pick on map</button>
           </div>
           <div class="pr-coords" id="pr-destination-coords" hidden>
             <label>Lat <input type="number" id="pr-destination-lat" step="0.001" min="-90" max="90" inputmode="decimal"></label>
@@ -84,7 +90,7 @@
           <input type="date" name="issue" id="pr-issue" required disabled>
           <p class="pr-examples" id="pr-examples" hidden></p>
         </div>
-        <button type="submit" class="primary pr-cta" id="pr-submit" disabled><b class="pr-step-no">4</b> Plan Route</button>
+        <button type="submit" class="primary pr-cta" id="pr-submit" disabled>Plan Route <span aria-hidden="true">↗</span></button>
       </div>
       <div class="pr-notes" id="pr-notes" aria-live="polite"></div>
     </form>
@@ -103,12 +109,13 @@
           <div class="legend" id="pr-pick-legend"></div>
         </div>
         <p class="sub pr-small" id="pr-pick-hint">Choose a start and destination from the lists, or press
-          <b>📍 Pick on map</b> and click the sea.</p>
+          <b>Pick on map</b> and click the sea.</p>
         <canvas id="pr-pick-map" width="760" height="560" aria-label="Map for picking the start and destination"></canvas>
         <p class="pr-note" id="pr-pick-note" aria-live="polite" hidden></p>
       </div>
-      <div class="card pr-landing">
-        <h2>Plan a risk-budgeted Antarctic voyage</h2>
+      <aside class="card pr-landing" aria-label="Planning guide">
+        <p class="guide-label">Before you depart</p>
+        <h2>From a route to a<br>voyage decision.</h2>
         <ol class="pr-how">
           <li><b>Start</b><span>Where the ship sails from: a named location or a point picked on the map.</span></li>
           <li><b>Destination</b><span>Where it is going. A point on land or in ice-locked water moves to the
@@ -118,9 +125,9 @@
           <li><b>Plan Route</b><span>200 joint sea-ice and iceberg scenarios pick the departure and route that keep
             the risk within the 5% budget.</span></li>
         </ol>
-        <p class="sub">Then simulate the voyage day by day, and check how the estimate was made under
-          Data &amp; Confidence.</p>
-      </div>
+        <p class="guide-note">A research estimate, with the assumptions in view. Review the daily simulation and
+          the underlying sources before interpreting a result.</p>
+      </aside>
     </div>
 
     <div class="card pr-loading" id="pr-loading" hidden role="status" aria-live="polite">
@@ -667,6 +674,7 @@
   </section>
 
   <footer class="dev-area">
+    <div class="footer-meta"><span>Antarctic routing</span><span>Research &amp; decision support</span></div>
     <details id="dev-area">
       <summary>Research / Developer</summary>
       <p class="sub">Internal research views and the synthetic sandbox. They are not part of the product; the
