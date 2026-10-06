@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -65,6 +66,23 @@ def test_api_reads_and_returns_no_data_service_credentials(monkeypatch):
     assert not [v for v in secrets.values() if v in body]
     api_code = "".join(p.read_text() for p in (ROOT / "src" / "antarctic_routing" / "api").glob("*.py"))
     assert not [k for k in CREDENTIALS if k in api_code]
+
+
+def test_api_starts_without_pytorch():
+    """The API image has no PyTorch ('ml' extra): the app must still import and serve /health."""
+    code = (
+        "import sys\n"
+        "class NoTorch:\n"  # any `import torch...` now fails as if PyTorch were not installed
+        "    def find_spec(self, name, path=None, target=None):\n"
+        "        if name.split('.')[0] == 'torch': raise ImportError('No module named torch')\n"
+        "sys.meta_path.insert(0, NoTorch())\n"
+        "from fastapi.testclient import TestClient\n"
+        "from antarctic_routing.api.main import create_app\n"
+        f"r = TestClient(create_app({str(CONFIG)!r})).get('/health')\n"
+        "assert r.status_code == 200, r.text\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+    assert res.returncode == 0, res.stderr
 
 
 def test_deployment_files_keep_credentials_and_data_out():

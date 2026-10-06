@@ -43,6 +43,9 @@ jobs:
           docker run -d --name antroute -p 8000:8000 antarctic-routing:ci
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/health; then break; fi
+            if [ "$(docker inspect -f '{{.State.Running}}' antroute)" != "true" ]; then
+              echo "::error::container stopped during start-up"; exit 1
+            fi
             sleep 2
           done
           curl -fsS http://127.0.0.1:8000/health | grep -q '"status":"ok"'
@@ -50,3 +53,12 @@ jobs:
           curl -fsS -X POST "http://127.0.0.1:8000/routes?wait=true" -H 'Content-Type: application/json' \
             -d '{"departure":"2027-01-10","scenarios":80,"resolution_km":25,"scenario_routes":0}' | grep -q '"status":"done"'
           docker logs antroute | tail -20
+      - name: Container state and logs on failure
+        if: failure()
+        run: |
+          docker ps -a
+          docker inspect antroute --format '{{.State.Status}} {{.State.ExitCode}} {{.State.Error}}' || true
+          docker logs antroute 2>&1 || true
+      - name: Remove container
+        if: always()
+        run: docker rm -f antroute || true
