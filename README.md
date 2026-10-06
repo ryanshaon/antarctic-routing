@@ -146,6 +146,8 @@ The planner's mean predicted P(breach) at departure was 0.3% (95% upper bound 3.
 
 The frozen demo is reproducible: `scripts/reproduce_frozen_demo.py` checks every input checksum, re-runs the planner with real forcing required, and compares the result with [`docs/frozen_demo/frozen_demo_2023-11-14.json`](docs/frozen_demo/frozen_demo_2023-11-14.json). See [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
 
+**Run the real-data product on your own machine:** [`docs/RUNTIME_SETUP.md`](docs/RUNTIME_SETUP.md) shows how to use the runtime archive (a GitHub Release asset, not in Git). No API keys are needed to run it.
+
 **No silent fallbacks.** Missing dates, files or credentials are errors or `blocked` results. Real sea ice with schematic forcing is labelled `mixed`/`schematic`, printed as a warning, and refused under `--require-real-forcing`. The API's interactive planner runs on the synthetic world and labels every response `controlled_synthetic`; real results are served only from a checksum-verified bundle, and the dashboard shows **Real / Historical / Forecast / Schematic / Unavailable** badges for every source.
 
 ## 🚀 Quickstart
