@@ -21,9 +21,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import numpy as np
-import torch
 import xarray as xr
-from torch.utils.data import Dataset
+
+try:  # PyTorch is the optional 'ml' extra; the API image imports this module without it.
+    import torch
+    from torch.utils.data import Dataset
+except ImportError:
+    torch = None
+    Dataset = object
 
 from antarctic_routing.preprocessing.climatology import day_of_season, season_of
 
