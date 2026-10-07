@@ -18,6 +18,11 @@ services:
       # The Vercel dashboard origin(s), e.g. https://antarctic-routing.vercel.app (no trailing slash).
       - key: ANTROUTE_CORS_ORIGINS
         sync: false
+      # Optional saved-plan storage (see docs/DEPLOYMENT.md); set both in the Render dashboard or leave unset.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
       - key: ANTROUTE_MAX_COMPUTE
         value: "1"
       - key: ANTROUTE_MAX_SCENARIO_CELLS

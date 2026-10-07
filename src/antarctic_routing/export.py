@@ -22,6 +22,7 @@ def _iso(dt: datetime) -> str:
 def _waypoints(candidate: Candidate, world: ScenarioSet) -> list[dict]:
     grid = world.grid
     seg = candidate.evaluation.segment_breach_prob
+    fuel = candidate.evaluation.segment_fuel or [None] * len(seg)
     rows = []
     for i, ((r, c), hours) in enumerate(zip(candidate.route.cells, candidate.route.arrival_hours, strict=True)):
         rows.append({
@@ -31,6 +32,7 @@ def _waypoints(candidate: Candidate, world: ScenarioSet) -> list[dict]:
             "planned_arrival_utc": _iso(world.start + timedelta(hours=hours)),
             "hours_from_departure": round(float(hours), 3),
             "segment_breach_prob": round(float(seg[i]), 6),
+            "segment_fuel_index": None if fuel[i] is None else round(float(fuel[i]), 3),
         })
     return rows
 

@@ -2,6 +2,8 @@
 
 import json
 import math
+import re
+import uuid
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -277,3 +279,65 @@ def test_plan_reports_a_missing_model_instead_of_substituting(client, monkeypatc
         r = c.post("/real/plan", json=BODY)
         assert r.status_code == 503 and r.json()["detail"]["status"] == "blocked"
         assert "PyTorch" in r.json()["detail"]["reason"]
+
+
+# ------------------------------------------------------------------ saved plans and the PDF brief
+def pdf_pages(raw: bytes) -> int:
+    return len(re.findall(rb"/Type /Page\b", raw))
+
+
+def test_every_plan_is_saved_under_an_id_from_its_content(client):
+    r = client.post("/real/plan", json=BODY)
+    j = r.json()
+    pid = j["plan_id"]
+    assert str(uuid.UUID(pid)) == pid and client.post("/real/plan", json=BODY).json()["plan_id"] == pid
+    listing = client.get("/real/plans").json()
+    assert listing["storage"] == "memory"
+    row = listing["plans"][0]                                             # newest first
+    assert row["id"] == pid and [x["id"] for x in listing["plans"]].count(pid) == 1
+    assert (row["origin"], row["destination"], row["issue_date"], row["mode"], row["status"]) == (
+        j["locations"]["origin"]["name"], j["locations"]["destination"]["name"], "2021-12-01", "historical",
+        j["status"])
+    assert row["p_breach_upper"] == j["risk"]["combined"]["p_breach_upper"]
+    saved = client.get(f"/real/plans/{pid}").json()
+    assert saved["plan_id"] == pid and saved["request"] == {**BODY, "include_layers": True}
+    assert saved["plan"] == {k: v for k, v in j.items() if k != "plan_id"}
+    assert len(client.get("/real/plans", params={"limit": 1}).json()["plans"]) == 1
+
+
+def test_unknown_or_malformed_plan_ids_are_refused(client):
+    missing = client.get("/real/plans/00000000-0000-4000-8000-000000000000")
+    assert missing.status_code == 404 and missing.json()["detail"]["status"] == "unknown_plan"
+    assert client.get("/real/plans/00000000-0000-4000-8000-000000000000/brief").status_code == 404
+    assert client.get("/real/plans/not-an-id").status_code == 422
+    assert client.get("/real/plans", params={"limit": 0}).status_code == 422
+
+
+def test_saved_plan_downloads_as_a_pdf_brief(client):
+    pid = client.post("/real/plan", json=BODY).json()["plan_id"]
+    r = client.get(f"/real/plans/{pid}/brief")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
+    assert r.headers["content-disposition"] == f"attachment; filename=voyage_brief_{pid}.pdf"
+    assert r.content.startswith(b"%PDF-") and pdf_pages(r.content) == 3   # decision, route map, window + routes
+    bare = client.post("/real/plan", json={**BODY, "include_layers": False}).json()["plan_id"]
+    assert bare != pid
+    assert pdf_pages(client.get(f"/real/plans/{bare}/brief").content) == 2   # no map layers were requested
+
+
+def test_the_brief_states_the_plan_s_own_numbers_and_handles_a_plan_with_no_route(client):
+    from antarctic_routing.brief import _plan_lines, _plan_notes, plan_brief
+
+    j = client.post("/real/plan", json=BODY).json()
+    lines = dict(_plan_lines(j))
+    c, rt = j["risk"]["combined"], j["route"]
+    assert lines["Route"] == f"{j['locations']['origin']['name']} -> {j['locations']['destination']['name']}"
+    assert lines["Departure (UTC)"] == rt["departure_utc"] and lines["Expected arrival (UTC)"] == rt["eta_utc"]
+    assert lines["Distance"] == f"{rt['distance_km']:.0f} km"
+    assert lines["Combined risk (decision)"].startswith(f"{c['breaches']} of {c['n_scenarios']} scenarios")
+    assert ("within" if c["within_budget"] else "EXCEEDS") in lines["Combined risk (decision)"]
+    feasible = sum(o["feasible"] for o in j["departure"]["options"])
+    assert lines["Departure window"].startswith(f"{feasible} of 3 departure dates")
+    assert j["metadata"]["hindsight_disclosure"] in _plan_notes(j)
+    none = {**j, "status": "no_route", "route": None, "risk": None, "alternatives": [], "daily": []}
+    assert dict(_plan_lines(none))["Decision"] == "NO ROUTE" and "Distance" not in dict(_plan_lines(none))
+    assert pdf_pages(plan_brief(none)) == 2

@@ -24,4 +24,7 @@ services:
       - ANTROUTE_MAX_BODY_BYTES=${ANTROUTE_MAX_BODY_BYTES:-65536}
       - ANTROUTE_LOG_LEVEL=${ANTROUTE_LOG_LEVEL:-INFO}
       - ANTROUTE_GIT_COMMIT=${ANTROUTE_GIT_COMMIT:-}
+      # Optional saved-plan storage (see docs/DEPLOYMENT.md); empty = in memory only.
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:-}
     restart: unless-stopped

@@ -743,6 +743,20 @@ def cmd_sensitivity(args) -> int:
     return 0
 
 
+def _supabase_from_dotenv(path: str = ".env") -> None:
+    """SUPABASE_* values of a local, git-ignored .env file, unless already set in the environment."""
+    import os
+
+    p = Path(path)
+    if not p.is_file():
+        return
+    for line in p.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.strip().partition("=")
+        value = value.strip().strip("'\"")
+        if sep and key.strip().startswith("SUPABASE_") and value:
+            os.environ.setdefault(key.strip(), value)
+
+
 def cmd_serve(args) -> int:
     import logging
     import os
@@ -751,6 +765,7 @@ def cmd_serve(args) -> int:
 
     from antarctic_routing.api.main import create_app
 
+    _supabase_from_dotenv()
     logging.basicConfig(level=os.environ.get("ANTROUTE_LOG_LEVEL", "INFO").upper(),
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     print(f"Serving dashboard and API on http://{args.host}:{args.port}  (docs: /docs)")

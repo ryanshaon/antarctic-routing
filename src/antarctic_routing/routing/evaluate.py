@@ -44,11 +44,16 @@ class RouteEvaluation:
     segment_breach_prob: list[float]
     destination_breach_prob: float = 0.0
     scenario_arrival_hours: list[list[float]] | None = None
+    # Per waypoint, for exports. Kept out of summary() so existing payloads are unchanged.
+    segment_fuel: list[float] | None = None        # expected fuel index of the leg ending here (0 at the start)
+    waypoint_hours: list[float | None] | None = None   # expected hours from departure; None if no scenario gets there
 
     def summary(self) -> dict:
         out = asdict(self)
         out.pop("segment_breach_prob")
         out.pop("scenario_arrival_hours")
+        out.pop("segment_fuel")
+        out.pop("waypoint_hours")
         return out
 
 
@@ -93,6 +98,7 @@ def evaluate_route(
     breach = hit0.copy()
     impassable = np.zeros(K, bool)
     seg_prob = [float(hit0.mean())]
+    seg_fuel = [0.0]
     arrivals = [t.copy()]
 
     for e in range(len(seg_km)):
@@ -109,7 +115,9 @@ def evaluate_route(
         cj = conc_at(j, r1, c1)
         hit = (cj >= vessel.tau) | berg_at(j, r1, c1) | stuck
         breach |= hit
-        fuel += seg_km[e] * (1 + vessel.lam * np.asarray(ice_penalty(cj, vessel.penalty, vessel.tau)))
+        leg_fuel = seg_km[e] * (1 + vessel.lam * np.asarray(ice_penalty(cj, vessel.penalty, vessel.tau)))
+        fuel += leg_fuel
+        seg_fuel.append(float(leg_fuel.mean()))
         seg_prob.append(float(hit.mean()))
         arrivals.append(t.copy())
 
@@ -119,6 +127,10 @@ def evaluate_route(
 
     def pct(a: np.ndarray, q: float) -> float:
         return float(np.percentile(a, q)) if a.size else float("inf")
+
+    def mean_hours(a: np.ndarray) -> float | None:
+        reached = a[np.isfinite(a)]                   # scenarios in which the vessel gets this far
+        return float(reached.mean() - depart_hours) if reached.size else None
 
     return RouteEvaluation(
         n_scenarios=K,
@@ -137,4 +149,6 @@ def evaluate_route(
         segment_breach_prob=seg_prob,
         destination_breach_prob=seg_prob[-1],
         scenario_arrival_hours=np.stack(arrivals, axis=1).tolist() if K <= 50 else None,
+        segment_fuel=seg_fuel,
+        waypoint_hours=[mean_hours(a) for a in arrivals],
     )

@@ -13,7 +13,7 @@ Stage 1 output: every value the system depends on, its status, and what must rep
 | Origin | (−56.3, −66.0) south of Cape Horn | 🟧 | Illustrative waypoint, not a port |
 | Destination | (−63.0, −59.0) central Bransfield Strait | 🟧 | Illustrative waypoint |
 | CRS | EPSG:3031 | 🟩 | Standard Antarctic polar stereographic; distances computed geodesically |
-| Grid | 10 km, 24 h | 🟧 | Matches OSI SAF OSI-401-b (10 km). NSIDC CDR is 25 km and should not be presented as 10 km detail |
+| Grid | 10 km, 24 h | 🟧 | The `config.yaml` default, matching OSI SAF OSI-401-b (10 km); commands accept `--resolution-km`. **Every real-data input and result is at 25 km**, the resolution of the OSI SAF climate record the U-Net was trained on, and must not be presented as 10 km detail. The default is left at 10 because `config.yaml` is checksum-pinned by the frozen demo |
 
 ## Vessel
 
@@ -33,6 +33,7 @@ Stage 1 output: every value the system depends on, its status, and what must rep
 | Risk budget | 5% | 🟥 | Operator decision |
 | Estimator | Wilson upper bound, 95% | 🟩 | Conservative; requires ≥ 73 scenarios for 5% (enforced by config validation) |
 | Route scenarios | 200 | 🟩 | Resolution 0.5%; ML ensemble members can be expanded with forcing perturbations |
+| ML ensemble size (`forecast.ensemble_size`) | 20 | 🟧 | Validated in the config but not read by any stage: route risk is always estimated from the 200 joint route scenarios above. Kept only because `config.yaml` is checksum-pinned |
 | Missing data | treated as hazardous | 🟩 | Conservative default |
 
 ## Forecasting and icebergs

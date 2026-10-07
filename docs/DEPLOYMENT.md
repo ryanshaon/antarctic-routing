@@ -178,13 +178,16 @@ How the API behaves when something is wrong:
 | `ANTROUTE_FIGURES`, `ANTROUTE_FIGURES_MODE` | `/app/docs/images`, `controlled_synthetic` | Validation figures and their data label |
 | `ANTROUTE_LOG_LEVEL` | `INFO` | Request log: method, path, status, duration, request id; never bodies or headers |
 | `ANTROUTE_GIT_COMMIT` | unset | Commit shown by `/versions`; on Render `RENDER_GIT_COMMIT` is used when unset |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | unset | Optional saved-plan storage (section 14); unset = the last 32 plans in memory |
 
 ## 8. Secrets
 
 - **Vercel:** only `ANTROUTE_API_BASE`, a public URL. The build reads no other variable; a test checks that
   credential values set in the build environment never reach the output.
-- **Render web service:** no credentials.
+- **Render web service:** no data-service credentials.
   - The API code reads none, and a test checks that no endpoint returns them.
+  - The one optional secret is `SUPABASE_SERVICE_KEY` (section 14). It is read by `store.py`, sent only to the
+    Supabase project, never logged and never returned by an endpoint.
   - The image contains no `.env`, `.cdsapirc`, PyTorch or data clients.
 - **Worker (when built):** credentials go into that service's own environment variables or secret files in Render,
   never into `render.yaml` values, the repository or the image. Use `.env.example` for the variable names.
@@ -239,3 +242,25 @@ disk keep the bytes.
 | `POST /routes?wait=true`, 200 scenarios, 25 km | 22 KB | 1.0-1.5 s |
 | `POST /routes?wait=true`, 200 scenarios, 10 km | 122 KB | 5-6 s |
 | Frozen plan-window (worker, CPU) | 200 members, 20 layers | 25-80 s |
+
+## 14. Saved plans (Supabase)
+
+Every `POST /real/plan` result is saved (see [PLAN_API.md](PLAN_API.md#saved-plans-and-the-pdf-brief)). By default
+the last 32 are kept in memory. To keep them across restarts, give the API a Supabase project:
+
+1. Create a project at [supabase.com](https://supabase.com) (the free tier is enough: a plan is about 100 kB).
+2. In the project's **SQL Editor**, paste [`deploy/supabase_schema.sql`](../deploy/supabase_schema.sql) and run it.
+   It creates the `plans` table with row level security on and no policies, so only the secret key can use it.
+3. Copy two values from the project settings:
+   - the **Project URL** (`https://<ref>.supabase.co`) → `SUPABASE_URL`
+   - a **secret key** (`sb_secret_...`; the legacy `service_role` key also works) → `SUPABASE_SERVICE_KEY`
+4. Give them to the API, never to the dashboard build:
+   - **locally:** put both lines in a `.env` file in the repository root (git-ignored). `antroute serve` and
+     `docker compose` read them from there. `antroute serve` takes only the `SUPABASE_*` lines from that file.
+   - **Render:** set both in the service's Environment page (`render.yaml` lists them with `sync: false`).
+5. Restart the API. `GET /real/plans` now answers `"storage": "supabase"`, and the dashboard's **Recent plans**
+   list says "Saved in the project database".
+
+The secret key bypasses row level security. Keep it out of the repository, the frontend and any `NEXT_PUBLIC_`-style
+variable. If Supabase is unreachable the plan is still answered and kept in memory; the failure is in the log.
+Anyone who can reach the API can list and open saved plans: there is no per-user separation (section 12).

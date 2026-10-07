@@ -65,6 +65,13 @@ data root is the original `/mnt/project-files/real-data`, the file is also byte-
 project's shared file folder adds a C2PA content-credentials chunk to PNG files, so compare a copy taken from
 there after removing that chunk. Other matplotlib or libpng versions can also change the PNG bytes.
 
+**Other platforms.** The pinned values come from a Linux run. On Windows with Python 3.12 and PyTorch 2.14 (CPU) the same
+inputs give the same selected departure, the same 36-cell route, 0 of 200 breaches and the same Wilson bound, but the
+expected time and fuel agree only to about 10 significant digits (37.503171114273826 h pinned, 37.50317111443609 h
+observed; fuel 837.7614215576623 against 837.7614215577828). The canonical checksum therefore differs and the script
+exits 5 there. This is floating-point rounding in a different numerical library build, not a different plan. The test
+suite compares these numbers to a relative 1e-9 for the same reason.
+
 ## 4. Outputs
 
 | File | Content |

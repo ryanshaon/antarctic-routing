@@ -13,6 +13,10 @@ POST /real/locations/resolve                 resolve an origin/destination pair:
 POST /real/plan                              one call: resolved ends, recommended departure and route, ETA,
                                              distance, fuel index, sea-ice / iceberg / combined risk, daily
                                              timeline and map layers (see :mod:`antarctic_routing.product`)
+GET  /real/plans                             the most recent saved plans (every /real/plan result is saved; see
+                                             :mod:`antarctic_routing.store`)
+GET  /real/plans/{id}                        a saved plan and the request that produced it
+GET  /real/plans/{id}/brief                  its PDF brief (see :mod:`antarctic_routing.brief`)
 POST /real/simulate[?wait=true]              the voyage /real/plan chose, sailed day by day through the observed
                                              ice with the existing daily replanning, as playback frames (job; see
                                              :mod:`antarctic_routing.simulation`)
@@ -50,7 +54,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from antarctic_routing import DISCLAIMER
@@ -109,6 +113,7 @@ from antarctic_routing.seasonal_analogue import (
 from antarctic_routing.seasonal_analogue import (
     resolve as resolve_analogue,
 )
+from antarctic_routing.store import PlanStore
 
 log = logging.getLogger("antarctic_routing.api")
 
@@ -294,6 +299,7 @@ def register(app: FastAPI, svc) -> HistoricalService:
     hs = HistoricalService(svc, os.environ.get("ANTROUTE_DATA_ROOT") or None)
     cfg = svc.cfg
     H = svc.horizon_days
+    store = app.state.plan_store = PlanStore.from_env()
 
     def ends(origin, destination) -> tuple[tuple[int, int], tuple[int, int], int, RouteSpec | None]:
         """Route cells and horizon: the exact configured path when no ends are given, else the resolved route."""
@@ -608,7 +614,7 @@ def register(app: FastAPI, svc) -> HistoricalService:
             body = shift_dates(relabel_proxy(body), setup.offset_days, REAL_DATES)
             out = {"status": body["status"], "explanation": body["explanation"], "metadata": meta, **ends_out}
             out.update({k: v for k, v in body.items() if k not in out})
-            return json_safe(out)
+            return keep(req, json_safe(out))
         a = coverage_or_422(req.issue, n_days)
         with svc.inline_slot():
             planner = hs.planner()
@@ -623,7 +629,38 @@ def register(app: FastAPI, svc) -> HistoricalService:
         }
         out = {"status": body["status"], "explanation": body["explanation"], "metadata": meta, **ends_out}
         out.update({k: v for k, v in body.items() if k not in out})
-        return json_safe(out)
+        return keep(req, json_safe(out))
+
+    def keep(req: PlanRequest, out: dict) -> dict:
+        """Save the result (see :mod:`antarctic_routing.store`) and return it with its ``plan_id``."""
+        return {**out, "plan_id": store.save(req.model_dump(mode="json", exclude_none=True), out)}
+
+    def saved_or_404(plan_id: uuid.UUID) -> dict:
+        hit = store.get(str(plan_id))
+        if hit is None:
+            raise HTTPException(404, {"status": "unknown_plan", "label": LABEL,
+                                      "reason": "no saved plan has this id (plans kept only in memory are lost "
+                                                "when the server restarts)"})
+        return hit
+
+    @app.get("/real/plans")
+    def saved_plans(limit: int = Query(20, ge=1, le=100)):
+        """The most recent saved plans, newest first (summaries only)."""
+        return {"storage": store.storage, "plans": store.list(limit)}
+
+    @app.get("/real/plans/{plan_id}")
+    def saved_plan(plan_id: uuid.UUID):
+        """A saved plan exactly as ``POST /real/plan`` returned it, with the request that produced it."""
+        hit = saved_or_404(plan_id)
+        return {"plan_id": str(plan_id), "request": hit["request"], "plan": hit["plan"]}
+
+    @app.get("/real/plans/{plan_id}/brief")
+    def saved_plan_brief(plan_id: uuid.UUID):
+        """PDF brief of a saved plan: decision, route map, departure window and candidate routes."""
+        from antarctic_routing.brief import plan_brief
+
+        return Response(plan_brief(saved_or_404(plan_id)["plan"]), media_type="application/pdf",
+                        headers={"Content-Disposition": f"attachment; filename=voyage_brief_{plan_id}.pdf"})
 
     @app.post("/real/simulate")
     def real_simulate(req: SimulateRequest, wait: bool = Query(False)):

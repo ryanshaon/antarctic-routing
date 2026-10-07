@@ -233,4 +233,7 @@ def route_summary(cand, world: ScenarioSet, option, step_hours: float) -> dict:
         "cells": [[int(r), int(c)] for r, c in cand.route.cells],
         "latlon": [[round(float(g.lat2d[r, c]), 5), round(float(g.lon2d[r, c]), 5)] for r, c in cand.route.cells],
         "xy_km": [[float(g.x[c] / 1000.0), float(g.y[r] / 1000.0)] for r, c in cand.route.cells],
+        # per waypoint, for route exports: expected fuel index of the leg ending there, and hours from departure
+        "segment_fuel_index": ev.segment_fuel,
+        "waypoint_hours": ev.waypoint_hours,
     }

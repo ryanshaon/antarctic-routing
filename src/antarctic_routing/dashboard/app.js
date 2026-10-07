@@ -7,7 +7,49 @@ const API_BASE = (document.querySelector('meta[name="antroute-api-base"]')?.cont
 const apiUrl = (path) => API_BASE + path;
 const css = (name) => getComputedStyle(document.querySelector(".viz-root")).getPropertyValue(name).trim();
 const SERIES = ["--series-1", "--series-2", "--series-3", "--series-4", "--series-5", "--series-6", "--series-7", "--series-8"];
-const ICE_RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"];
+// Sea-ice ramp and chart lettering follow the stylesheet (day and night chart palettes).
+let ICE_RAMP = ["#d3e6f3", "#a9cde6", "#7fb1d6", "#5592c1", "#3672a6", "#1f5385", "#0f3862"];
+function loadRamp() {
+  const v = css("--ice-ramp").split(/[\s,]+/).filter((c) => /^#[0-9a-f]{6}$/i.test(c));
+  if (v.length >= 2) ICE_RAMP = v;
+}
+const CHART_FONT = 'Bahnschrift, "DIN Alternate", "Avenir Next", "Segoe UI", system-ui, sans-serif';
+const chartFont = (px, weight = 400) => `${weight} ${px}px ${CHART_FONT}`;
+
+/* Motion. One tween per subject: its first frame is drawn straight away, the rest on animation frames. When the
+   system asks for reduced motion, or the tab is in the background, only the finished state is drawn. */
+const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const tweens = new Map();
+function stopTween(key) { cancelAnimationFrame(tweens.get(key)); tweens.delete(key); }
+function tween(key, ms, frame) {
+  stopTween(key);
+  if (reduceMotion() || document.hidden) { frame(1); return; }
+  const t0 = performance.now();
+  const step = (now) => {
+    const t = Math.min(1, Math.max(0, (now - t0) / ms));
+    if (t < 1) tweens.set(key, requestAnimationFrame(step)); else tweens.delete(key);
+    frame(t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
+  };
+  tweens.set(key, requestAnimationFrame(step));
+  frame(0);
+}
+// The first part of a path by length: 0 is its first point alone, 1 the whole path.
+function pathUpTo(pts, f) {
+  if (!pts || pts.length < 2 || f >= 1) return pts || [];
+  const seg = pts.slice(1).map(([x, y], i) => Math.hypot(x - pts[i][0], y - pts[i][1]));
+  let left = Math.max(0, f) * seg.reduce((a, b) => a + b, 0);
+  const out = [pts[0]];
+  for (let i = 0; i < seg.length; i++) {
+    if (seg[i] >= left) {
+      const q = seg[i] ? left / seg[i] : 0;
+      out.push([pts[i][0] + q * (pts[i + 1][0] - pts[i][0]), pts[i][1] + q * (pts[i + 1][1] - pts[i][1])]);
+      return out;
+    }
+    left -= seg[i];
+    out.push(pts[i + 1]);
+  }
+  return out;
+}
 const pct = (v, d = 1) => (v == null || !isFinite(v) ? "–" : (100 * v).toFixed(d) + "%");
 const num = (v, d = 0) => (v == null || !isFinite(v) ? "–" : Number(v).toFixed(d));
 
@@ -112,8 +154,35 @@ function openTab(b) {
   if (isHist(tab)) redrawHist(tab);
   if (tab === "product") { if (b.dataset.view === "sim") openSimulation(); else setView(b.dataset.view); }
   setModeBadge(tab);
+  syncTabAccessibility();
 }
 const primaryButton = (view) => $(`.primary-nav button[data-view="${view}"]`);
+function syncTabAccessibility() {
+  document.querySelectorAll('.tabs[role="tablist"]').forEach((list) => {
+    const tabs = [...list.querySelectorAll('button[role="tab"]')];
+    const active = tabs.find((b) => b.getAttribute("aria-selected") === "true") || tabs[0];
+    tabs.forEach((b) => {
+      b.tabIndex = b === active ? 0 : -1;
+      b.setAttribute("aria-controls", "tab-" + b.dataset.tab);
+    });
+  });
+}
+// Arrow keys move within each tab list; Tab moves on to the workspace.
+document.addEventListener("keydown", (event) => {
+  const tab = event.target.closest('[role="tab"]');
+  if (!tab || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const list = tab.closest('[role="tablist"]');
+  if (!list) return;
+  const tabs = [...list.querySelectorAll('[role="tab"]')].filter((b) => !b.disabled);
+  const i = tabs.indexOf(tab);
+  const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+    : (i + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[next].focus();
+  tabs[next].click();
+});
+$("#tab-product").tabIndex = -1;
+syncTabAccessibility();
 document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => openTab(b)));
 $("#dev-back").addEventListener("click", () => openTab(primaryButton("plan")));
 document.querySelectorAll("[data-goto]").forEach((b) => b.addEventListener("click", () => openTab(primaryButton(b.dataset.goto))));
@@ -145,12 +214,13 @@ function drawMap(plan, canvasSel = "#map", st = mapState, legendSel = "#map-lege
     return [rx * c + ry * s, -rx * s + ry * c];
   };
 
-  ctx.fillStyle = css("--surface-1");
+  loadRamp();
+  ctx.fillStyle = css("--off-chart");
   ctx.fillRect(0, 0, w, h);
 
   // raster: one pixel per grid cell, row 0 of the grid is the bottom of the image
   const img = new ImageData(m.nx, m.ny);
-  const land = hexToRgb(css("--land")), berg = hexToRgb(css("--berg")), surf = hexToRgb(css("--surface-1"));
+  const land = hexToRgb(css("--land")), berg = hexToRgb(css("--berg")), surf = hexToRgb(css("--sea"));
   const missing = hexToRgb(css("--missing"));
   let anyMissing = false;
   for (let j = 0; j < m.ny; j++) {
@@ -177,7 +247,28 @@ function drawMap(plan, canvasSel = "#map", st = mapState, legendSel = "#map-lege
   ctx.setTransform(dpr * scale * c * r, dpr * -scale * s * r, dpr * scale * s * r, dpr * scale * c * r,
     dpr * (e0 + scale * (c * m.x0_km - s * Y1)), dpr * (f0 - scale * (s * m.x0_km + c * Y1)));
   ctx.drawImage(off, 0, 0);
+  // coast: a fine line along every land / sea cell edge (the land mask as plotted, not a surveyed coastline)
+  const coast = new Path2D(), isLand = (i, j) => i >= 0 && j >= 0 && i < m.nx && j < m.ny && m.land[j * m.nx + i];
+  for (let j = 0; j < m.ny; j++) {
+    for (let i = 0; i < m.nx; i++) {
+      if (!m.land[j * m.nx + i]) continue;
+      const y0 = m.ny - 1 - j;
+      if (!isLand(i - 1, j)) { coast.moveTo(i, y0); coast.lineTo(i, y0 + 1); }
+      if (!isLand(i + 1, j)) { coast.moveTo(i + 1, y0); coast.lineTo(i + 1, y0 + 1); }
+      if (!isLand(i, j + 1)) { coast.moveTo(i, y0); coast.lineTo(i + 1, y0); }
+      if (!isLand(i, j - 1)) { coast.moveTo(i, y0 + 1); coast.lineTo(i + 1, y0 + 1); }
+    }
+  }
+  ctx.strokeStyle = css("--coast"); ctx.lineWidth = 1.1 / (scale * r); ctx.lineCap = "square";
+  ctx.stroke(coast);
   ctx.restore();
+  const roseAt = [w - 62, h - 66], roseR = 34;
+  const onGrid = (px, py) => { const [gx, gy] = st.fromScreen(px, py); return gx > m.x0_km && gx < X1 && gy > m.y0_km && gy < Y1; };
+  const rose = m.crs === "EPSG:3031" && w >= 520 &&        // never over data: only in a corner outside the routing grid
+    ![0, 1, 2, 3, 4, 5, 6, 7].some((q) => onGrid(roseAt[0] + (roseR + 14) * Math.cos((q * Math.PI) / 4), roseAt[1] + (roseR + 14) * Math.sin((q * Math.PI) / 4)));
+  drawGraticule(ctx, m, st, w, h, rose ? 132 : 30);
+  if (rose) drawCompassRose(ctx, st, roseAt[0], roseAt[1], roseR);
+  drawScaleBar(ctx, scale, w);
 
   // routes: non-recommended first, recommended last and thicker
   st.screenRoutes = [];
@@ -187,16 +278,17 @@ function drawMap(plan, canvasSel = "#map", st = mapState, legendSel = "#map-lege
     const pts = cand.xy_km.map(([x, y]) => toScreen(x, y));
     const rec = i === plan.recommended_index;
     ctx.lineJoin = "round"; ctx.lineCap = "round";
-    if (rec) { ctx.strokeStyle = css("--surface-1"); ctx.lineWidth = 6; strokePath(ctx, pts); }
+    const shown = rec && plan.reveal != null && plan.reveal < 1 ? pathUpTo(pts, plan.reveal) : pts;
+    if (rec) { ctx.strokeStyle = css("--chart-halo"); ctx.lineWidth = 6.5; strokePath(ctx, shown); }
     ctx.strokeStyle = css(SERIES[i % SERIES.length]);
-    ctx.lineWidth = rec ? 3.5 : 2;
+    ctx.lineWidth = rec ? 3 : 1.75;
     ctx.setLineDash(cand.feasible ? [] : [6, 4]);
-    strokePath(ctx, pts);
+    strokePath(ctx, shown);
     ctx.setLineDash([]);
     st.screenRoutes.push({ i, pts });
   }
-  if (plan.origin_xy_km) marker(ctx, toScreen(...plan.origin_xy_km), css("--series-3"), "Origin");
-  if (plan.destination_xy_km) marker(ctx, toScreen(...plan.destination_xy_km), css("--series-4"), "Destination");
+  if (plan.origin_xy_km) marker(ctx, toScreen(...plan.origin_xy_km), "origin", plan.origin_label || "Origin");
+  if (plan.destination_xy_km) marker(ctx, toScreen(...plan.destination_xy_km), "destination", plan.destination_label || "Destination");
 
   const legend = $(legendSel);
   legend.replaceChildren(
@@ -219,12 +311,145 @@ function strokePath(ctx, pts) {
   ctx.stroke();
 }
 
-function marker(ctx, [x, y], colour, label) {
-  ctx.beginPath(); ctx.arc(x, y, 6, 0, 2 * Math.PI);
-  ctx.fillStyle = colour; ctx.fill();
-  ctx.lineWidth = 2; ctx.strokeStyle = css("--surface-1"); ctx.stroke();
-  ctx.fillStyle = css("--text-primary"); ctx.font = "12px system-ui, sans-serif";
-  ctx.fillText(label, x + 9, y - 8);
+// Chart lettering with a halo in the sea colour, so it stays legible over ice, land and lines.
+function chartText(ctx, text, x, y, { px = 12, weight = 500, colour = css("--text-primary"), align = "left" } = {}) {
+  ctx.save();
+  ctx.font = chartFont(px, weight); ctx.textAlign = align; ctx.textBaseline = "alphabetic";
+  ctx.lineJoin = "round"; ctx.lineWidth = 3.5; ctx.strokeStyle = css("--chart-halo");
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = colour; ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+// The start is a solid position dot, the destination an open ring: told apart by shape, not colour alone.
+function marker(ctx, [x, y], kind, label) {
+  const ink = css("--text-primary"), halo = css("--chart-halo");
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y, 7.5, 0, 2 * Math.PI); ctx.fillStyle = halo; ctx.fill();
+  if (kind === "destination") {
+    ctx.beginPath(); ctx.arc(x, y, 5.5, 0, 2 * Math.PI); ctx.lineWidth = 2.5; ctx.strokeStyle = ink; ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, 1.5, 0, 2 * Math.PI); ctx.fillStyle = ink; ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.arc(x, y, 5.5, 0, 2 * Math.PI); ctx.fillStyle = ink; ctx.fill();
+  }
+  ctx.restore();
+  chartText(ctx, label, x + 11, y - 9, { px: 13, weight: 600 });
+}
+
+/* EPSG:3031 (Antarctic polar stereographic, true scale at 71 S, WGS84): km on the grid <-> latitude / longitude.
+   Used only to draw the graticule; routing coordinates always come from the server. */
+const PS = (() => {
+  const a = 6378.137, f = 1 / 298.257223563, e = Math.sqrt(2 * f - f * f), D = Math.PI / 180;
+  const t = (phi) => Math.tan(Math.PI / 4 - phi / 2) / Math.pow((1 - e * Math.sin(phi)) / (1 + e * Math.sin(phi)), e / 2);
+  const pc = 71 * D, k = (a * Math.cos(pc)) / Math.sqrt(1 - e * e * Math.sin(pc) ** 2) / t(pc);
+  return {
+    forward(lat, lon) { const rho = k * t(-lat * D); return [rho * Math.sin(lon * D), rho * Math.cos(lon * D)]; },
+    inverse(x, y) {
+      const tt = Math.hypot(x, y) / k;
+      let phi = Math.PI / 2 - 2 * Math.atan(tt);
+      for (let i = 0; i < 6; i++) phi = Math.PI / 2 - 2 * Math.atan(tt * Math.pow((1 - e * Math.sin(phi)) / (1 + e * Math.sin(phi)), e / 2));
+      return [-phi / D, Math.atan2(x, y) / D];
+    },
+  };
+})();
+
+const niceStep = (span, steps, want) => steps.find((s) => span / s <= want) || steps[steps.length - 1];
+
+// Parallels and meridians with their values lettered at the chart edge.
+function drawGraticule(ctx, m, st, w, h, clearRight = 30) {
+  if (m.crs !== "EPSG:3031" || !st.fromScreen) return;
+  let latMin = 90, latMax = -90, lonMin = 360, lonMax = -360;
+  const [, lonMid] = PS.inverse(...st.fromScreen(w / 2, h / 2));
+  const rel = (lon) => ((lon - lonMid + 540) % 360) - 180;        // degrees east of the chart's middle meridian
+  for (let a = 0; a <= 8; a++) {
+    for (let b = 0; b <= 8; b++) {
+      const [lat, lon] = PS.inverse(...st.fromScreen((w * a) / 8, (h * b) / 8));
+      latMin = Math.min(latMin, lat); latMax = Math.max(latMax, lat);
+      lonMin = Math.min(lonMin, rel(lon)); lonMax = Math.max(lonMax, rel(lon));
+    }
+  }
+  if (latMin < -88 || lonMax - lonMin > 200) return;              // the pole is in view: no tidy graticule to draw
+  const dLat = niceStep(latMax - latMin, [1, 2, 5, 10], 6), dLon = niceStep(lonMax - lonMin, [2, 5, 10, 15, 30], 6);
+  const colour = css("--graticule"), label = css("--muted");
+  const line = (pts) => { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); };
+  // where a line leaves the frame: the left edge for parallels, the bottom edge for meridians
+  const crossing = (pts, side) => {
+    for (let i = 1; i < pts.length; i++) {
+      const [x1, y1] = pts[i - 1], [x2, y2] = pts[i];
+      if (side === "left" && x1 * x2 <= 0 && x1 !== x2) {
+        const y = y1 - (x1 / (x2 - x1)) * (y2 - y1);
+        if (y > 14 && y < h - 22) return [0, y];
+      }
+      if (side === "bottom" && (y1 - h) * (y2 - h) <= 0 && y1 !== y2) {
+        const x = x1 + ((h - y1) / (y2 - y1)) * (x2 - x1);
+        if (x > 44 && x < w - clearRight) return [x, h];
+      }
+    }
+    return null;
+  };
+  ctx.save();
+  ctx.strokeStyle = colour; ctx.lineWidth = 0.75;
+  const fmt = (v, pos, neg) => `${Math.abs(Math.round(v))}°${v < 0 ? neg : pos}`;
+  for (let lat = Math.ceil(latMin / dLat) * dLat; lat <= latMax; lat += dLat) {
+    const pts = [];
+    for (let d = lonMin - 4; d <= lonMax + 4; d += 0.5) pts.push(st.toScreen(...PS.forward(lat, lonMid + d)));
+    line(pts);
+    const c = crossing(pts, "left");
+    if (c) chartText(ctx, fmt(lat, "N", "S"), 6, c[1] - 4, { px: 11, weight: 400, colour: label });
+  }
+  for (let d = Math.ceil((lonMid + lonMin) / dLon) * dLon; d <= lonMid + lonMax; d += dLon) {
+    const lon = ((d + 540) % 360) - 180;
+    const pts = [];
+    for (let lat = Math.max(-89, latMin - 3); lat <= Math.min(-30, latMax + 3); lat += 0.5) pts.push(st.toScreen(...PS.forward(lat, lon)));
+    line(pts);
+    const c = crossing(pts, "bottom");
+    if (c) chartText(ctx, fmt(lon, "E", "W"), c[0] + 4, h - 7, { px: 11, weight: 400, colour: label });
+  }
+  ctx.restore();
+}
+
+// Compass rose, printed in the chart's magenta. North is true north at the rose itself: on this projection the
+// meridians converge on the pole, so north is not "up" everywhere on the sheet.
+function drawCompassRose(ctx, st, cx, cy, R) {
+  const [lat, lon] = PS.inverse(...st.fromScreen(cx, cy));
+  if (!isFinite(lat) || lat > -30) return;
+  const [nx, ny] = st.toScreen(...PS.forward(Math.min(-30, lat + 1), lon));
+  const north = Math.atan2(ny - cy, nx - cx);                      // screen angle of true north
+  const colour = css("--series-1");
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, R + 13, 0, 2 * Math.PI); ctx.fillStyle = css("--chart-halo"); ctx.fill();
+  ctx.translate(cx, cy); ctx.rotate(north + Math.PI / 2);          // from here on, "up" is north
+  ctx.strokeStyle = colour; ctx.fillStyle = colour; ctx.lineWidth = 1; ctx.lineCap = "butt";
+  ctx.beginPath(); ctx.arc(0, 0, R, 0, 2 * Math.PI); ctx.stroke();
+  for (let d = 0; d < 360; d += 10) {
+    const a = (d * Math.PI) / 180, len = d % 90 === 0 ? 8 : d % 30 === 0 ? 5.5 : 3;
+    ctx.beginPath(); ctx.moveTo(Math.sin(a) * R, -Math.cos(a) * R); ctx.lineTo(Math.sin(a) * (R - len), -Math.cos(a) * (R - len)); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.moveTo(0, R - 12); ctx.lineTo(0, -(R - 12)); ctx.stroke();               // north-south line
+  ctx.beginPath(); ctx.moveTo(-(R - 12), 0); ctx.lineTo(R - 12, 0); ctx.stroke();               // east-west line
+  ctx.beginPath(); ctx.moveTo(0, -(R - 9)); ctx.lineTo(4.5, -(R - 20)); ctx.lineTo(-4.5, -(R - 20)); ctx.closePath(); ctx.fill();
+  ctx.font = chartFont(11, 600); ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  ctx.fillText("N", 0, -(R + 3));
+  ctx.restore();
+}
+
+// Distance scale, alternating bands as on a paper chart. The grid is conformal, so one bar serves the view.
+function drawScaleBar(ctx, scale, w) {
+  if (!isFinite(scale) || scale <= 0) return;
+  const unit = [10, 25, 50, 100, 200, 250, 500, 1000].filter((v) => v * scale <= 150).pop();
+  if (!unit) return;
+  const len = unit * scale, x0 = Math.round(w - len - 18), y0 = 16, ink = css("--text-primary"), halo = css("--chart-halo");
+  ctx.save();
+  ctx.fillStyle = halo; ctx.fillRect(x0 - 8, y0 - 6, len + 16, 30);
+  for (let i = 0; i < 4; i++) {
+    ctx.fillStyle = i % 2 ? halo : ink;
+    ctx.fillRect(x0 + (len * i) / 4, y0, len / 4, 4);
+  }
+  ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, y0 + 0.5, len - 1, 3);
+  ctx.font = chartFont(11); ctx.fillStyle = ink; ctx.textBaseline = "alphabetic";
+  ctx.textAlign = "left"; ctx.fillText("0", x0, y0 + 18);
+  ctx.textAlign = "right"; ctx.fillText(`${unit} km`, x0 + len, y0 + 18);
+  ctx.restore();
 }
 
 function distToSegment(px, py, [x1, y1], [x2, y2]) {
@@ -254,8 +479,8 @@ $(canvasSel).addEventListener("pointermove", (ev) => {
     row("Expected time", num(cand.expected_hours, 1) + " h"), row("Fuel index", num(cand.expected_fuel)),
     row("Distance", num(cand.distance_km) + " km"),
   );
-  tip.style.left = Math.min(px + 14, rect.width - 200) + "px";
-  tip.style.top = (py + 40) + "px";
+  tip.style.left = (ev.target.offsetLeft + Math.min(px + 14, rect.width - 210)) + "px";
+  tip.style.top = (ev.target.offsetTop + py + 16) + "px";
   tip.hidden = false;
 });
 $(canvasSel).addEventListener("pointerleave", () => { $(tipSel).hidden = true; });
@@ -317,48 +542,68 @@ function drawWindow(result, budget, canvasSel = "#window-chart", st = winState) 
   const canvas = $(canvasSel);
   const { ctx, w, h } = fitCanvas(canvas);
   const opts = result.options;
-  const left = 52, right = 12, top = 16, bottom = 46;
+  const left = 46, right = 8, top = 18, bottom = 30;
   const peak = Math.max(budget, ...opts.map((o) => Math.min(1, o.p_breach_upper)));
   const step = [0.01, 0.02, 0.05, 0.1, 0.2, 0.25].find((st) => (1.15 * peak) / st <= 5) || 0.25;
   const ymax = Math.min(1, Math.max(step * 2, Math.ceil((1.15 * peak) / step) * step));
   const y = (v) => top + (h - top - bottom) * (1 - v / ymax);
   ctx.fillStyle = css("--surface-1"); ctx.fillRect(0, 0, w, h);
-  ctx.font = "11px system-ui, sans-serif"; ctx.fillStyle = css("--muted"); ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1;
+  ctx.font = chartFont(11); ctx.fillStyle = css("--muted"); ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1;
+  ctx.textAlign = "right";
   for (let v = 0; v <= ymax + 1e-9; v += step) {
-    const yy = y(v);
+    const yy = Math.round(y(v)) + 0.5;
     ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(w - right, yy); ctx.stroke();
-    ctx.fillText(pct(v, 0), 8, yy + 4);
+    ctx.fillText(pct(v, 0), left - 10, yy + 4);
   }
-  const bw = (w - left - right) / opts.length;
+  ctx.textAlign = "center";
+  const bw = (w - left - right) / opts.length, grow = st.grow ?? 1;
+  const every = Math.max(1, Math.ceil(46 / bw));                    // letter every n-th day when the bars are narrow
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const dayLabel = (iso) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1] || ""}`;
   st.bars = [];
   opts.forEach((o, k) => {
-    const x = left + k * bw + bw * 0.15, bwid = bw * 0.7, v = Math.min(1, o.p_breach_upper);
-    ctx.fillStyle = o.feasible ? css("--good") : css("--critical");
-    const yy = y(v), r = Math.min(4, bwid / 2);
-    ctx.beginPath();
-    ctx.moveTo(x, y(0)); ctx.lineTo(x, yy + r); ctx.quadraticCurveTo(x, yy, x + r, yy);
-    ctx.lineTo(x + bwid - r, yy); ctx.quadraticCurveTo(x + bwid, yy, x + bwid, yy + r); ctx.lineTo(x + bwid, y(0));
-    ctx.fill();
-    ctx.fillStyle = css("--text-primary");
-    ctx.fillText(o.feasible ? "✓" : "✕", x + bwid / 2 - 4, yy - 4);
-    ctx.fillStyle = css("--muted");
-    ctx.save(); ctx.translate(x + bwid / 2, h - bottom + 12); ctx.rotate(-0.6);
-    ctx.fillText(o.departure.slice(5), -18, 8); ctx.restore();
-    st.bars.push({ x, w: bwid, o });
+    const bwid = Math.max(3, Math.min(34, bw * 0.56)), x = left + k * bw + (bw - bwid) / 2, v = Math.min(1, o.p_breach_upper);
+    const yy = Math.min(y(v * grow), y(0) - 2), picked = result.selected && o.departure === result.selected;
+    const colour = picked ? css("--series-1") : o.feasible ? css("--bar-ok") : css("--critical");
+    ctx.fillStyle = colour;
+    ctx.fillRect(x, yy, bwid, y(0) - yy);
+    if (o.support === "climatology-dominated") {                    // outline only: most of this voyage is past the forecast
+      ctx.fillStyle = css("--surface-1");
+      ctx.fillRect(x + 1.5, yy + 1.5, bwid - 3, Math.max(0, y(0) - yy - 1.5));
+    } else if (!o.feasible) {                                              // over budget: hatched as well as coloured
+      ctx.save(); ctx.beginPath(); ctx.rect(x, yy, bwid, y(0) - yy); ctx.clip();
+      ctx.strokeStyle = css("--surface-1"); ctx.lineWidth = 1.5;
+      for (let q = -(y(0) - yy); q < bwid + 4; q += 6) { ctx.beginPath(); ctx.moveTo(x + q, y(0)); ctx.lineTo(x + q + (y(0) - yy), yy); ctx.stroke(); }
+      ctx.restore();
+    }
+    if (k % every === 0 || picked) {
+      ctx.font = chartFont(11, picked ? 600 : 400);
+      ctx.fillStyle = picked ? css("--text-primary") : css("--muted");
+      ctx.fillText(dayLabel(o.departure), x + bwid / 2, h - bottom + 18);
+    }
+    st.bars.push({ x, w: bwid, o, x0: left + k * bw, x1: left + (k + 1) * bw });   // x0..x1: the whole day's column, for hover
   });
+  ctx.strokeStyle = css("--axis"); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(left, Math.round(y(0)) + 0.5); ctx.lineTo(w - right, Math.round(y(0)) + 0.5); ctx.stroke();
   ctx.strokeStyle = css("--text-primary"); ctx.setLineDash([5, 4]);
   ctx.beginPath(); ctx.moveTo(left, y(budget)); ctx.lineTo(w - right, y(budget)); ctx.stroke(); ctx.setLineDash([]);
   const label = `risk budget ${pct(budget, 0)}`;
+  ctx.font = chartFont(11, 600); ctx.textAlign = "right";
   ctx.fillStyle = css("--surface-1");
-  ctx.fillRect(left + 2, y(budget) - 17, ctx.measureText(label).width + 6, 14);
-  ctx.fillStyle = css("--text-primary"); ctx.fillText(label, left + 5, y(budget) - 6);
+  ctx.fillRect(w - right - ctx.measureText(label).width - 8, y(budget) - 17, ctx.measureText(label).width + 8, 14);
+  ctx.fillStyle = css("--text-primary"); ctx.fillText(label, w - right - 3, y(budget) - 6);
   if (result.selected) {
     const b = st.bars.find((q) => q.o.departure === result.selected);
     if (b) {
-      ctx.fillStyle = css("--text-primary");
-      ctx.fillText("▼ selected", b.x + b.w / 2 - 26, Math.max(top + 10, y(Math.min(1, b.o.p_breach_upper)) - 18));
+      const top0 = Math.min(y(Math.min(1, b.o.p_breach_upper) * grow), y(0) - 2), cx = b.x + b.w / 2;
+      ctx.strokeStyle = css("--series-1"); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(cx, top0); ctx.lineTo(cx, Math.max(top + 4, top0 - 22)); ctx.stroke();
+      ctx.textAlign = cx > w - 90 ? "right" : "left";
+      ctx.font = chartFont(11, 600); ctx.fillStyle = css("--series-1");
+      ctx.fillText("selected", cx + (cx > w - 90 ? -5 : 5), Math.max(top + 12, top0 - 13));
     }
   }
+  ctx.textAlign = "left";
 }
 
 function attachWindowTip(canvasSel, tipSel, st) {
@@ -366,12 +611,13 @@ $(canvasSel).addEventListener("pointermove", (ev) => {
   const tip = $(tipSel);
   const rect = ev.target.getBoundingClientRect();
   const px = ev.clientX - rect.left;
-  const b = st.bars.find((q) => px >= q.x - 4 && px <= q.x + q.w + 4);
+  const b = st.bars.find((q) => px >= (q.x0 ?? q.x - 4) && px <= (q.x1 ?? q.x + q.w + 4));
   if (!b) { tip.hidden = true; return; }
   tip.replaceChildren(el("strong", {}, b.o.departure), row("95% upper bound", pct(b.o.p_breach_upper)),
     row("P(breach)", pct(b.o.p_breach)), row("Expected time", num(b.o.expected_hours, 1) + " h"),
     row("Fuel index", num(b.o.expected_fuel)), row("Status", b.o.feasible ? "✓ meets budget" : "✕ exceeds budget"));
-  tip.style.left = Math.min(px + 14, rect.width - 200) + "px"; tip.style.top = "60px"; tip.hidden = false;
+  tip.style.left = (ev.target.offsetLeft + Math.min(px + 14, rect.width - 210)) + "px";
+  tip.style.top = (ev.target.offsetTop + 4) + "px"; tip.hidden = false;
 });
 $(canvasSel).addEventListener("pointerleave", () => { $(tipSel).hidden = true; });
 }
@@ -531,7 +777,7 @@ function drawTracks() {
     const [x, y] = pts[pts.length - 1];
     ctx.setLineDash([]);
     ctx.beginPath(); ctx.arc(x, y, 4, 0, 2 * Math.PI); ctx.stroke();
-    ctx.font = "10px system-ui, sans-serif"; ctx.fillText(t.id, x + 6, y + 3);
+    ctx.font = chartFont(10); ctx.fillText(t.id, x + 6, y + 3);
     ctx.setLineDash([4, 3]);
   }
   ctx.restore();
@@ -728,13 +974,23 @@ function drawTrackLines(canvasSel, st, tracks, k, legendSel) {
   const ctx = $(canvasSel).getContext("2d"), col = css("--berg");
   ctx.save();
   ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.5;
+  const taken = [];
+  ctx.font = chartFont(10.5, 500);
   for (const t of tracks) {
     const pts = t.daily_mean.filter((d) => d.layer <= k && d.x_km != null).map((d) => st.toScreen(d.x_km, d.y_km));
     if (!pts.length) continue;
     ctx.setLineDash([4, 3]); strokePath(ctx, pts); ctx.setLineDash([]);
     const [x, y] = pts[pts.length - 1];
     ctx.beginPath(); ctx.arc(x, y, 4, 0, 2 * Math.PI); ctx.stroke();
-    ctx.font = "10px system-ui, sans-serif"; ctx.fillText(t.id, x + 6, y + 3);
+    const tw = ctx.measureText(t.id).width;
+    for (const [tx, ty, align] of [[x + 7, y + 4, "left"], [x - 7, y + 4, "right"], [x + 6, y - 7, "left"], [x + 6, y + 15, "left"],
+      [x - 6, y - 7, "right"], [x - 6, y + 15, "right"]]) {
+      const box = align === "left" ? [tx - 2, ty - 10, tx + tw + 2, ty + 3] : [tx - tw - 2, ty - 10, tx + 2, ty + 3];
+      if (!taken.every((q) => box[2] < q[0] || box[0] > q[2] || box[3] < q[1] || box[1] > q[3])) continue;
+      taken.push(box);
+      chartText(ctx, t.id, tx, ty, { px: 10.5, weight: 500, colour: col, align });
+      break;
+    }
   }
   ctx.restore();
   const legend = $(legendSel);
@@ -928,7 +1184,7 @@ function drawReplay() {
   for (const b of st.bergs || []) {
     const [x, y] = st.toScreen(b.xy_km[0], b.xy_km[1]);
     ctx.beginPath(); ctx.arc(x, y, 4, 0, 2 * Math.PI); ctx.stroke();
-    ctx.font = "10px system-ui, sans-serif"; ctx.fillText(b.id, x + 6, y + 3);
+    ctx.font = chartFont(10); ctx.fillText(b.id, x + 6, y + 3);
   }
   ctx.restore();
   $("#hreplay-map-legend").replaceChildren(
@@ -1240,7 +1496,7 @@ function formProblem() {
   if (!prod.locations) return "Locations are still loading.";
   for (const role of ["origin", "destination"]) {
     if ($(`#pr-${role}`).value === MAP_VALUE && !endOf(role)) {
-      return `${ROLE_LABEL[role]}: press 📍 Pick on map and click the sea, or type a latitude and longitude.`;
+      return `${ROLE_LABEL[role]}: press Pick on map and click the sea, or type a latitude and longitude.`;
     }
   }
   for (const role of ["origin", "destination"]) if (coordProblem(role)) return coordProblem(role);
@@ -1351,7 +1607,7 @@ function fillLocationSelects(locs) {
   byRegion(o); byRegion(dst);
   const ok = usable.filter((p) => p.available !== false);
   // The API's own order: the configured origin comes first and the configured destination second.
-  for (const sel of [o, dst]) sel.append(el("option", { value: MAP_VALUE }, "📍 Point on the map…"));
+  for (const sel of [o, dst]) sel.append(el("option", { value: MAP_VALUE }, "Point on the map…"));
   if (ok[0]) o.value = ok[0].id;
   if (ok[1]) dst.value = ok[1].id;
   o.disabled = dst.disabled = $("#pr-swap").disabled = $("#pr-pick-origin").disabled = $("#pr-pick-destination").disabled = false;
@@ -1386,6 +1642,13 @@ function kmToLatLon(g, x, y) {
   return { lat: Math.round(bil(g.lat) * 1e4) / 1e4, lon: Math.round(bil(g.lon) * 1e4) / 1e4 };
 }
 
+// A short name for chart lettering: the chosen place without its bracketed note, or the picked coordinates.
+function placeLabel(role) {
+  const e = endOf(role);
+  if (!e) return null;
+  return e.preset ? (presetById(e.preset)?.name || e.preset).replace(/ \(.*\)$/, "") : `${num(e.lat, 2)}°, ${num(e.lon, 2)}°`;
+}
+
 function endXY(role) {
   const g = prod.locations && prod.locations.map, r = resolvedEnd(role);
   if (!g || !r || !r.resolved || r.resolved.row == null) return null;
@@ -1400,18 +1663,41 @@ function drawPickMap() {
       land: g.land, p_ice: g.land.map(() => 0), p_berg: null },
     candidates: [], recommended_index: null,
     origin_xy_km: endXY("origin"), destination_xy_km: endXY("destination"),
+    origin_label: placeLabel("origin"), destination_label: placeLabel("destination"),
   };
+  plan.map.crs = g.crs;
   drawMap(plan, "#pr-pick-map", pickState, "#pr-pick-legend");
   pickState.plan = plan;
-  const ctx = $("#pr-pick-map").getContext("2d");
+  const canvas = $("#pr-pick-map"), ctx = canvas.getContext("2d");
   ctx.save();
-  ctx.font = "11px system-ui, sans-serif";
+  if (plan.origin_xy_km && plan.destination_xy_km) {   // the passage as a rhumb-style guide line, not a planned route
+    const a = pickState.toScreen(...plan.origin_xy_km), b = pickState.toScreen(...plan.destination_xy_km);
+    ctx.setLineDash([2, 5]); ctx.lineCap = "round"; ctx.strokeStyle = css("--series-1"); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); ctx.setLineDash([]);
+    marker(ctx, a, "origin", plan.origin_label || "Origin");
+    marker(ctx, b, "destination", plan.destination_label || "Destination");
+  }
   const chosen = [$("#pr-origin").value, $("#pr-destination").value];
+  // boxes already lettered (the two ends first), so place names never overprint each other
+  const taken = ["origin", "destination"].map((role) => plan[`${role}_xy_km`]).filter(Boolean)
+    .map((xy) => { const [x, y] = pickState.toScreen(...xy); return [x - 10, y - 26, x + 190, y + 10]; });
+  const clear = (b) => taken.every((t) => b[2] < t[0] || b[0] > t[2] || b[3] < t[1] || b[1] > t[3]);
+  ctx.font = chartFont(11.5);
   for (const p of prod.locations.presets) {           // named locations, for orientation
     if (!p.resolved || p.resolved.row == null || chosen.includes(p.id)) continue;
     const [x, y] = pickState.toScreen(g.x_km[p.resolved.col], g.y_km[p.resolved.row]);
-    ctx.beginPath(); ctx.arc(x, y, 3, 0, 2 * Math.PI); ctx.fillStyle = css("--muted"); ctx.fill();
-    ctx.fillStyle = css("--text-secondary"); ctx.fillText(p.name.replace(/ \(.*\)$/, ""), x + 5, y + 12);
+    ctx.beginPath(); ctx.arc(x, y, 2.75, 0, 2 * Math.PI); ctx.fillStyle = css("--chart-halo"); ctx.fill();
+    ctx.lineWidth = 1.25; ctx.strokeStyle = css("--text-secondary"); ctx.stroke();
+    const name = p.name.replace(/ \(.*\)$/, ""), tw = ctx.measureText(name).width;
+    const spots = [[x + 7, y + 4, "left"], [x - 7, y + 4, "right"], [x + 7, y - 8, "left"], [x + 7, y + 15, "left"],
+      [x - 7, y - 8, "right"], [x - 7, y + 15, "right"]];
+    for (const [tx, ty, align] of spots) {
+      const box = align === "left" ? [tx - 2, ty - 11, tx + tw + 2, ty + 3] : [tx - tw - 2, ty - 11, tx + 2, ty + 3];
+      if (!clear(box) || box[0] < 2 || box[2] > canvas.clientWidth - 2) continue;
+      taken.push(box);
+      chartText(ctx, name, tx, ty, { px: 11.5, weight: 400, colour: css("--text-secondary"), align });
+      break;
+    }
   }
   for (const role of ["origin", "destination"]) {     // a picked point, and the dashed move to its routing cell
     const pk = prod.picked[role], cell = endXY(role);
@@ -1422,13 +1708,13 @@ function drawPickMap() {
       ctx.setLineDash([4, 3]); ctx.strokeStyle = css("--text-secondary"); ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, cy); ctx.stroke(); ctx.setLineDash([]);
     }
-    ctx.beginPath(); ctx.arc(px, py, 6, 0, 2 * Math.PI); ctx.lineWidth = 2;
-    ctx.strokeStyle = css(role === "origin" ? "--series-3" : "--series-4"); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px - 7, py); ctx.lineTo(px + 7, py); ctx.moveTo(px, py - 7); ctx.lineTo(px, py + 7);
+    ctx.lineWidth = 1.5; ctx.strokeStyle = css("--series-1"); ctx.stroke();        // the clicked point, as a cross
   }
   ctx.restore();
   $("#pr-pick-legend").replaceChildren(
-    el("span", {}, el("i", { class: "box", style: `background:${css("--land")}` }), "Land (routing land mask)"),
-    el("span", {}, el("i", { class: "box", style: `background:${css("--muted")}` }), "Named locations"),
+    el("span", {}, el("i", { class: "box land-box" }), "Land (routing land mask)"),
+    el("span", {}, el("i", { class: "box place-box" }), "Named locations"),
     el("span", {}, el("i", { style: `border-top-style:dashed;border-color:${css("--text-secondary")}` }), "Moved to open water"));
   const who = prod.picking ? ROLE_LABEL[prod.picking].toLowerCase() : null;
   $("#pr-pick-title").textContent = who ? `Click the sea to set the ${who}` : "Routing area";
@@ -1441,7 +1727,7 @@ $("#pr-pick-map").addEventListener("click", (ev) => {
   const note = $("#pr-pick-note");
   if (!role) {
     note.hidden = false;
-    note.textContent = "Press 📍 Pick on map next to the start or the destination first.";
+    note.textContent = "Press Pick on map next to the start or the destination first.";
     return;
   }
   const rect = ev.target.getBoundingClientRect();
@@ -1493,6 +1779,7 @@ async function setupProduct(status) {
     showProductUnavailable(`Could not load the locations: ${e.message}`);
     return;
   }
+  loadSaved();
   await loadProductDates();
 }
 
@@ -1543,6 +1830,7 @@ function setView(view) {
   if (view === "sim" && sailable) drawSimMap();
   if (view === "data" && !has) renderDataGeneral(null);
   updateFlow();
+  syncTabAccessibility();
 }
 
 // The subordinate progress strip: which step the person is on, and which they have reached. Not a nav.
@@ -1565,7 +1853,7 @@ function setBusy(on, body) {
   $("#pr-loading").hidden = !on;
   for (const id of ["#pr-origin", "#pr-destination", "#pr-issue", "#pr-swap", "#pr-pick-origin",
     "#pr-pick-destination", "#pr-origin-lat", "#pr-origin-lon", "#pr-destination-lat", "#pr-destination-lon"]) $(id).disabled = on;
-  $("#pr-submit").replaceChildren(...(on ? ["Planning…"] : [el("b", { class: "pr-step-no" }, "4"), " Plan Route"]));
+  $("#pr-submit").textContent = on ? "Planning…" : "Plan Route";
   clearInterval(prod.timer);
   if (on) {
     const t0 = Date.now(), fc = dateMode(body.issue) === "forecast";
@@ -1607,6 +1895,8 @@ async function planRoute() {
     prod.result = res;
     renderProduct(res);
     setView("plan");
+    tween("plot", 1100, (v) => { prMapState.reveal = v; prWinState.grow = v; drawProduct(); });
+    loadSaved();
   } catch (e) {
     if (e.name === "AbortError") {
       showError(timedOut ? new PlanError("The plan took too long", `No answer from the server after ` +
@@ -1687,6 +1977,9 @@ function renderVerdict(p) {
     metric("Fuel index", num(r.fuel_index?.expected), "relative index, not tonnes"),
   ] : []));
   $("#pr-metrics").hidden = !r;
+  $("#pr-export").hidden = !r;
+  $("#pr-export-pdf").hidden = !p.plan_id;
+  $("#pr-export-note").hidden = true;
   $("#pr-sim-cta").hidden = !r;
   $("#pr-sim-cta-note").textContent = p.metadata.mode === "forecast" ?
     "Sail this route day by day with the same daily forecasts and replanning rules. Forecast estimate: the ice it " +
@@ -1712,6 +2005,203 @@ function renderRisks(p) {
   );
 }
 
+/* ---- the candidate routes behind the choice, each scored on the same joint scenarios */
+const ROUTE_TAG = { lowest_risk: "lowest risk", fastest_feasible: "fastest within budget",
+  shortest_feasible: "shortest within budget", lowest_fuel_feasible: "lowest fuel within budget" };
+const sameRoute = (a, r) => JSON.stringify(a.xy_km) === JSON.stringify(r.xy_km);
+const otherRoutes = (p) => (p.route ? (p.alternatives || []).filter((a) => Array.isArray(a.xy_km) && !sameRoute(a, p.route)) : []);
+// A route is named by what it turned out to be (its tags); failing that, by the search that produced it.
+function routeName(a) {
+  const tags = (a.tags || []).map((t) => ROUTE_TAG[t] || t.replace(/_/g, " "));
+  if (tags.length) return tags.join(", ");
+  const found = (a.labels || []).map((l) => l.replace(/^risk_weighted_(\d+)$/, "risk-weighted ×$1")
+    .replace(/^scenario_(\d+)_optimal$/, "best in scenario $1").replace(/_/g, " "));
+  return found.length ? found.join(", ") : "alternative route";
+}
+
+function renderAlternatives(p) {
+  const card = $("#pr-alts"), alts = (p.alternatives || []).filter((a) => Array.isArray(a.xy_km));
+  card.hidden = !p.route || !alts.length;
+  if (card.hidden) return;
+  const chosen = alts.find((a) => sameRoute(a, p.route)), others = otherRoutes(p);
+  const rows = [...(chosen ? [chosen] : []), ...others];
+  const strategies = alts.reduce((n, a) => n + (a.labels || []).length, 0);
+  $("#pr-alts-note").textContent = (strategies ? `${strategies} search ${strategies === 1 ? "strategy" : "strategies"} gave ` : "") +
+    `${alts.length} distinct ${alts.length === 1 ? "route" : "routes"}. ` +
+    `Every route is sailed through the same ${p.metadata.n_scenarios} joint scenarios, so the figures are comparable.`;
+  $("#pr-alts-table tbody").replaceChildren(...rows.map((a) => {
+    const isChosen = a === chosen, i = isChosen ? 0 : 1 + others.indexOf(a);
+    return el("tr", { class: isChosen ? "rec" : "" },
+      el("td", {}, el("span", { class: "swatch", style: `background:${css(SERIES[i % SERIES.length])}` })),
+      el("td", {}, (isChosen ? (p.status === "recommended" ? "★ " : "◆ ") : "") + routeName(a)),
+      el("td", {}, statusPill(a.feasible)),
+      el("td", { class: "num" }, num(a.distance_km)),
+      el("td", { class: "num" }, `${num(a.expected_hours, 1)} (${num(a.hours_p10, 1)}–${num(a.hours_p90, 1)})`),
+      el("td", { class: "num" }, num(a.expected_fuel)),
+      el("td", { class: "num" }, a.n_scenarios ? `${a.breaches} of ${a.n_scenarios}` : "–"),
+      el("td", { class: "num" }, pct(a.p_breach_upper, 1)));
+  }));
+}
+
+/* ---- route export, built from the plan on screen: nothing is recomputed in the page */
+function routeWaypoints(p) {
+  const r = p.route, t0 = Date.parse(r.departure_utc);
+  const seg = p.risk?.combined?.segment_breach_prob || [], fuel = r.segment_fuel_index || [], hrs = r.waypoint_hours || [];
+  const round = (v, d) => (v == null || !isFinite(v) ? null : Math.round(v * 10 ** d) / 10 ** d);
+  return (r.latlon || []).map(([lat, lon], i) => ({
+    waypoint_index: i, lat, lon,
+    hours_from_departure: round(hrs[i], 3),
+    expected_arrival_utc: hrs[i] != null && isFinite(hrs[i]) && isFinite(t0) ?
+      new Date(t0 + hrs[i] * 3600e3).toISOString().replace(/\.\d+Z$/, "Z") : null,
+    segment_breach_prob: round(seg[i], 6),
+    segment_fuel_index: round(fuel[i], 3),
+  }));
+}
+
+function routeGeoJSON(p) {
+  const r = p.route, m = p.metadata, c = p.risk?.combined || {}, model = (m.provenance || {}).forecast_model || {};
+  const wps = routeWaypoints(p);
+  const properties = {
+    origin: p.locations.origin.name || null, destination: p.locations.destination.name || null,
+    status: p.status, recommended: Boolean(r.recommended),
+    departure_utc: r.departure_utc, eta_utc: r.eta_utc ?? null,
+    expected_hours: r.expected_hours, hours_p10: r.hours_p10 ?? null, hours_p90: r.hours_p90 ?? null,
+    distance_km: r.distance_km, fuel_index_expected: r.fuel_index?.expected ?? null, fuel_index_unit: r.fuel_index?.unit ?? null,
+    risk_budget: p.risk?.risk_budget ?? null, p_breach: c.p_breach ?? null, p_breach_upper: c.p_breach_upper ?? null,
+    breaches: c.breaches ?? null, n_scenarios: c.n_scenarios ?? null, within_budget: c.within_budget ?? null,
+    data_mode: m.mode, data_label: m.label ?? null, forecast_issue_date: m.issue_date ?? null,
+    requested_date: m.requested_date ?? null, forecast_model: model.id ?? null, forecast_model_sha256: model.sha256 ?? null,
+    software_version: $("#version-badge").textContent.replace(/^v/, ""), disclaimer: m.disclaimer,
+  };
+  return { type: "FeatureCollection", features: [
+    { type: "Feature", geometry: { type: "LineString", coordinates: wps.map((w) => [w.lon, w.lat]) }, properties },
+    ...wps.map(({ lat, lon, ...rest }) => ({ type: "Feature", geometry: { type: "Point", coordinates: [lon, lat] }, properties: rest })),
+  ] };
+}
+
+function routeCSV(p) {
+  const m = p.metadata, cell = (v) => {
+    const s = v == null ? "" : String(v);
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const rows = routeWaypoints(p).map((w) => ({ ...w, data_mode: m.mode, forecast_issue_date: m.issue_date ?? "", disclaimer: m.disclaimer }));
+  const head = ["waypoint_index", "lat", "lon", "hours_from_departure", "expected_arrival_utc", "segment_breach_prob",
+    "segment_fuel_index", "data_mode", "forecast_issue_date", "disclaimer"];
+  return [head.join(","), ...rows.map((w) => head.map((k) => cell(w[k])).join(","))].join("\r\n") + "\r\n";
+}
+
+function saveFile(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = el("a", { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function exportName(p, kind = "route") {
+  const slug = (s) => String(s || "point").toLowerCase().replace(/\(.*?\)/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "point";
+  return `${kind}_${slug(p.locations.origin.name)}_to_${slug(p.locations.destination.name)}_${p.route.departure_date}`;
+}
+
+function exportRoute(kind) {
+  const p = prod.result;
+  if (!p || !p.route) return;
+  if (kind === "csv") saveFile(exportName(p) + ".csv", routeCSV(p), "text/csv;charset=utf-8");
+  else saveFile(exportName(p) + ".geojson", JSON.stringify(routeGeoJSON(p), null, 2), "application/geo+json");
+}
+$("#pr-export-geojson").addEventListener("click", () => exportRoute("geojson"));
+$("#pr-export-csv").addEventListener("click", () => exportRoute("csv"));
+
+// The PDF brief is built by the server from the saved plan; the page only downloads it.
+async function exportBrief() {
+  const p = prod.result, button = $("#pr-export-pdf"), note = $("#pr-export-note");
+  if (!p || !p.route || !p.plan_id || button.disabled) return;
+  button.disabled = true;
+  note.hidden = true;
+  try {
+    let res;
+    try { res = await fetch(apiUrl(`/real/plans/${encodeURIComponent(p.plan_id)}/brief`)); } catch {
+      throw new Error("The brief could not be downloaded: the server was not reachable.");
+    }
+    if (!res.ok) {
+      throw new Error(res.status === 404 ? "The server no longer holds this plan. Plan the route again to download its brief."
+        : `The server could not build the brief (HTTP ${res.status}).`);
+    }
+    saveFile(exportName(p, "voyage-brief") + ".pdf", await res.blob(), "application/pdf");
+  } catch (e) {
+    note.textContent = e.message;
+    note.hidden = false;
+  } finally {
+    button.disabled = false;
+  }
+}
+$("#pr-export-pdf").addEventListener("click", () => exportBrief());
+
+/* ---- recent plans: the server saves every result, so opening one needs no new computation */
+async function loadSaved() {
+  let d;
+  try { d = await planFetch("/real/plans?limit=6"); } catch { return; }      // optional: the page works without it
+  const rows = Array.isArray(d.plans) ? d.plans.filter((r) => r && r.id) : [];
+  const verdict = (r) => (r.status === "recommended" ? `✓ ${pct(r.p_breach_upper)} risk bound`
+    : r.status === "no_route" ? "✕ no route" : `✕ ${pct(r.p_breach_upper)} exceeds the budget`);
+  $("#pr-saved-list").replaceChildren(...rows.map((r) => el("li", {}, el("button", { type: "button", "data-id": r.id },
+    el("b", {}, `${r.origin || "Start"} → ${r.destination || "Destination"}`),
+    el("span", { class: `pr-saved-verdict ${r.status === "recommended" ? "ok" : "bad"}` }, verdict(r)),
+    el("span", {}, `${r.issue_date || "–"} · ${r.mode === "forecast" ? "forecast estimate" : "real historical data"}`)))));
+  $("#pr-saved-note").textContent = d.storage === "supabase" ? "Saved in the project database. Opening one shows the stored result."
+    : "Held by this server until it restarts. Opening one shows the stored result.";
+  $("#pr-saved").hidden = !rows.length;
+}
+
+// The form shows the request behind the plan on screen, so a result never sits next to other inputs.
+function showRequest(req) {
+  for (const role of ["origin", "destination"]) {
+    const e = req[role] || {}, sel = $(`#pr-${role}`);
+    if (e.preset && [...sel.options].some((o) => o.value === e.preset)) sel.value = e.preset;
+    else if (e.lat != null && e.lon != null) {
+      sel.value = MAP_VALUE;
+      $(`#pr-${role}-lat`).value = e.lat;
+      $(`#pr-${role}-lon`).value = e.lon;
+    }
+    prod.picked[role] = null;
+    showCoords(role);
+  }
+  $("#pr-issue").value = req.issue;
+  prod.dateChosen = true;
+}
+
+async function openSaved(id) {
+  if (prod.busy) return;
+  if (prod.controller) prod.controller.abort();
+  prod.picking = null;
+  $("#pr-error").hidden = true;
+  prod.result = null;
+  resetSimulation();
+  try {
+    const saved = await planFetch(`/real/plans/${encodeURIComponent(id)}`);
+    const req = saved.request;
+    if (!req || !req.origin || !req.destination || !req.issue) {
+      throw new PlanError("The saved plan could not be read", "Its request is missing.", "Plan the route again.");
+    }
+    const res = checkPlan({ ...saved.plan, plan_id: saved.plan_id });
+    prod.lastBody = { origin: req.origin, destination: req.destination, issue: req.issue };
+    showRequest(req);
+    prod.result = res;
+    renderProduct(res);
+    setView("plan");
+    tween("plot", 1100, (v) => { prMapState.reveal = v; prWinState.grow = v; drawProduct(); });
+    loadProductDates();
+  } catch (e) {
+    showError(e instanceof PlanError ? e : new PlanError("Could not open the saved plan", e.message));
+    setView("plan");
+  }
+}
+$("#pr-saved-list").addEventListener("click", (ev) => {
+  const button = ev.target.closest("button[data-id]");
+  if (button) openSaved(button.dataset.id);
+});
+
 function prPlanForLayer(p, k) {
   const L = p.layers, g = L.grid, layer = L.layers.find((x) => x.scenario_layer === k) || L.layers[0];
   const r = p.route, cell = (loc) => {
@@ -1722,13 +2212,18 @@ function prPlanForLayer(p, k) {
     layer,
     plan: {
       map: { nx: g.nx, ny: g.ny, res_km: g.res_km, x0_km: g.x0_km, y0_km: g.y0_km, rotation_rad: g.rotation_rad,
-        land: L.land, p_ice: layer.p_ice_ge_limit_pct, p_berg: layer.p_berg_pct },
+        crs: g.crs, land: L.land, p_ice: layer.p_ice_ge_limit_pct, p_berg: layer.p_berg_pct },
       candidates: r ? [{ xy_km: r.xy_km, labels: [p.status === "recommended" ? "recommended route" : "least-risky route (not recommended)"],
         feasible: p.status === "recommended", p_breach: p.risk.combined.p_breach,
         p_breach_upper: p.risk.combined.p_breach_upper, expected_hours: r.expected_hours,
-        expected_fuel: r.fuel_index?.expected, distance_km: r.distance_km }] : [],
+        expected_fuel: r.fuel_index?.expected, distance_km: r.distance_km },
+        ...otherRoutes(p).map((a) => ({ xy_km: a.xy_km, labels: [routeName(a)], feasible: a.feasible, p_breach: a.p_breach,
+          p_breach_upper: a.p_breach_upper, expected_hours: a.expected_hours, expected_fuel: a.expected_fuel,
+          distance_km: a.distance_km }))] : [],
       recommended_index: r ? 0 : null,
       origin_xy_km: cell(p.locations.origin), destination_xy_km: cell(p.locations.destination),
+      origin_label: (p.locations.origin.name || "Origin").replace(/ \(.*\)$/, ""),
+      destination_label: (p.locations.destination.name || "Destination").replace(/ \(.*\)$/, ""),
       land_label: "Land (sea-ice product mask; not a navigational coastline)",
     },
   };
@@ -1739,6 +2234,7 @@ function drawProduct() {
   if (!p || $("#tab-product").hidden || $("#pr-result").hidden) return;
   if (p.layers && p.daily.length) {
     const day = p.daily[prod.day], { plan, layer } = prPlanForLayer(p, day.scenario_layer);
+    plan.reveal = prMapState.reveal ?? 1;
     prMapState.plan = plan; prMapState.tracks = p.iceberg_tracks; prMapState.k = day.scenario_layer;
     drawMap(plan, "#pr-map", prMapState, "#pr-map-legend");
     drawTrackLines("#pr-map", prMapState, p.iceberg_tracks, day.scenario_layer, "#pr-map-legend");
@@ -1755,16 +2251,18 @@ function drawDaySegment(p, day) {
   const [a, b] = day.route_cell_index, xy = p.route.xy_km.slice(Math.max(0, a - 1), b + 1);
   const pts = xy.map(([x, y]) => prMapState.toScreen(x, y));
   const ctx = $("#pr-map").getContext("2d");
-  ctx.save();
-  ctx.lineJoin = "round"; ctx.lineCap = "round";
-  ctx.strokeStyle = css("--surface-1"); ctx.lineWidth = 9; strokePath(ctx, pts);
-  ctx.strokeStyle = css("--series-2"); ctx.lineWidth = 5; strokePath(ctx, pts);
-  const [x, y] = pts[pts.length - 1];
-  ctx.beginPath(); ctx.arc(x, y, 7, 0, 2 * Math.PI);
-  ctx.fillStyle = css("--series-2"); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = css("--surface-1"); ctx.stroke();
-  ctx.restore();
+  if ((prMapState.reveal ?? 1) >= 1) {                  // the day's stretch goes on once the route itself is plotted
+    ctx.save();
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.strokeStyle = css("--chart-halo"); ctx.lineWidth = 9; strokePath(ctx, pts);
+    ctx.strokeStyle = css("--day"); ctx.lineWidth = 5; strokePath(ctx, pts);
+    const [x, y] = pts[pts.length - 1];
+    ctx.beginPath(); ctx.arc(x, y, 7, 0, 2 * Math.PI);
+    ctx.fillStyle = css("--day"); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = css("--chart-halo"); ctx.stroke();
+    ctx.restore();
+  }
   const legend = $("#pr-map-legend");
-  legend.append(el("span", {}, el("i", { style: `border-top-width:4px;border-color:${css("--series-2")}` }),
+  legend.append(el("span", {}, el("i", { style: `border-top-width:4px;border-color:${css("--day")}` }),
     `Day ${day.day_of_voyage} (nominal)`));
 }
 
@@ -1837,6 +2335,25 @@ function renderWindow(p) {
   $("#pr-window-verdict").textContent = `${nOk} of ${opts.length} departure dates meet the ${pct(budgetV, 0)} budget. ` +
     (p.status === "recommended" ? `Recommended: ${shown}. ` : shown ? `None meets it; least-risky shown: ${shown}. ` : "") +
     `Rule: ${p.departure.rule}.`;
+  const beyond = opts.filter((o) => o.support === "climatology-dominated").length;
+  const estimate = p.metadata.mode === "forecast";       // a labelled estimate from proxy inputs: there is no forecast to speak of
+  const untrusted = opts.filter((o) => o.within_trust_horizon === false).length;
+  const key = (cls, text) => el("span", {}, el("i", { class: "box " + cls }), text);
+  $("#pr-window-legend").replaceChildren(
+    ...(p.status === "recommended" ? [key("bar-sel", "Recommended departure")] : []),
+    ...(opts.some((o) => o.feasible) ? [key("bar-ok", "Meets the budget")] : []),
+    ...(opts.some((o) => !o.feasible) ? [key("bar-bad", "Exceeds the budget")] : []),
+    ...(beyond ? [key("bar-beyond", `Mostly beyond the ${estimate ? "scenario days" : "forecast"} (climatology)`)] : []));
+  const trust = ((p.metadata.provenance || {}).limitations || []).find((t) => /trust horizon/i.test(t));
+  const supported = opts.length - beyond;
+  $("#pr-trust").replaceChildren(
+    el("b", {}, estimate ? "Scenario support. " : "Forecast support. "),
+    `${supported} of ${opts.length} departure dates are sailed mostly within ` +
+    (estimate ? "the estimate's scenario days (proxy inputs, not a forecast)" : "the forecast") +
+    (beyond ? `; ${beyond} lean on climatology beyond ${estimate ? "them" : "it"}.` : ".") +
+    (untrusted ? ` ${untrusted} fall outside the forecast's trust horizon.` : ""),
+    ...(trust ? [" ", el("b", {}, "Forecast trust. "), trust] : []));
+  $("#pr-trust").hidden = !opts.length;
   const ref = opts.find((o) => o.departure === shown);
   $("#pr-options tbody").replaceChildren(...opts.map((o) => {
     const arr = o.expected_hours != null && isFinite(o.expected_hours) ?
@@ -1936,7 +2453,7 @@ function renderData(p) {
   $("#pr-data-badge").textContent = forecast ? (isAnalogue(m) ? "Seasonal analogue estimate" : "Forecast estimate") : "Historical";
   $("#pr-data-badge").className = "badge " + (forecast ? "status-forecast" : "status-historical");
   $("#pr-banners").replaceChildren(...(m.banners || []).map((b) => el("span", { class: "pr-banner" }, b)),
-    el("button", { type: "button", class: "pr-link", id: "pr-open-data" }, "Data & Confidence →"));
+    el("button", { type: "button", class: "pr-link", id: "pr-open-data" }, "Data & Confidence"));
   $("#pr-open-data").addEventListener("click", () => openTab(primaryButton("data")));
   const sea = h.sea_ice || {}, model = h.forecast_model || {}, f = h.forcing || {}, b = h.icebergs || {}, s = h.season;
   if (!forecast) $("#pr-data-modes").replaceChildren(...[
@@ -2124,6 +2641,7 @@ function renderProduct(p) {
   renderHowto(p);
   renderVerdict(p);
   renderRisks(p);
+  renderAlternatives(p);
   renderDays(p);
   renderDayTable(p);
   renderWindow(p);
@@ -2135,7 +2653,7 @@ function renderProduct(p) {
 /* ------------------------------------------------------------- product: Simulate Voyage */
 // Plays back the frames POST /real/simulate returns for the route just planned. The server sails the route
 // through the observed ice and applies the existing daily replanning; the page only steps through the frames.
-const sim = { data: null, key: null, i: 0, timer: null, busy: false, clock: null };
+const sim = { data: null, key: null, i: 0, timer: null, busy: false, clock: null, shown: null, glide: 1 };
 const simMapState = { plan: null, toScreen: null, screenRoutes: [] };
 const SIM_STEP_MS = 1400;
 const SIM_TIMEOUT_MS = 600000;
@@ -2147,7 +2665,8 @@ function simKey() {
 
 function resetSimulation() {
   simPause();
-  sim.data = null; sim.key = null; sim.i = 0;
+  sim.data = null; sim.key = null; sim.i = 0; sim.shown = null; sim.glide = 1;
+  stopTween("vessel");
   $("#sim-body").hidden = true; $("#sim-error").hidden = true; $("#sim-loading").hidden = true;
 }
 
@@ -2262,9 +2781,11 @@ function drawSimMap() {
   const f = s.frames[sim.i], g = s.grid, first = s.frames[0];
   const plan = {
     map: { nx: g.nx, ny: g.ny, res_km: g.res_km, x0_km: g.x0_km, y0_km: g.y0_km, rotation_rad: g.rotation_rad,
-      land: g.land, p_ice: f.map ? f.map.concentration_pct : g.land.map(() => null), p_berg: null },
+      crs: g.crs, land: g.land, p_ice: f.map ? f.map.concentration_pct : g.land.map(() => null), p_berg: null },
     candidates: [], recommended_index: null,
     origin_xy_km: first.route.xy_km[0], destination_xy_km: first.route.xy_km[first.route.xy_km.length - 1],
+    origin_label: prod.result ? (prod.result.locations.origin.name || "Origin").replace(/ \(.*\)$/, "") : null,
+    destination_label: prod.result ? (prod.result.locations.destination.name || "Destination").replace(/ \(.*\)$/, "") : null,
     land_label: "Land (sea-ice product mask)",
     focus_xy_km: [...first.route.xy_km, ...s.frames.flatMap((x) => x.route.xy_km)],
   };
@@ -2275,20 +2796,30 @@ function drawSimMap() {
   simRouteLine(ctx, first.route.xy_km, css("--muted"), 2, replanned ? [6, 5] : []);           // as planned
   if (replanned) simRouteLine(ctx, f.route.xy_km, css("--series-2"), 3);                        // new route ahead
   else simRouteLine(ctx, f.route.xy_km, css("--series-1"), 3);                                  // route ahead
-  simRouteLine(ctx, f.track, css("--surface-1"), 7);
-  simRouteLine(ctx, f.track, css("--series-3"), 4);                                              // sailed so far
-  ctx.save(); ctx.strokeStyle = css("--berg"); ctx.fillStyle = css("--berg"); ctx.font = "10px system-ui, sans-serif";
+  // While the vessel is under way to this frame, it and its wake are drawn part-way along the day's track.
+  const before = sim.glide < 1 && sim.i > 0 ? s.frames[sim.i - 1] : null;
+  let track = f.track, vessel = f.position.xy_km;
+  if (before && Array.isArray(before.track) && Array.isArray(f.track) && before.track.length && f.track.length >= before.track.length) {
+    const leg = pathUpTo(f.track.slice(before.track.length - 1), sim.glide);
+    track = [...f.track.slice(0, before.track.length - 1), ...leg];
+    vessel = leg[leg.length - 1] || vessel;
+  }
+  simRouteLine(ctx, track, css("--chart-halo"), 7);
+  simRouteLine(ctx, track, css("--series-3"), 4);                                                // sailed so far
+  ctx.save(); ctx.fillStyle = css("--berg");
   for (const b of (f.observed && f.observed.icebergs && f.observed.icebergs.in_grid) || []) {
     const [x, y] = simMapState.toScreen(b.xy_km[0], b.xy_km[1]);
-    ctx.beginPath(); ctx.arc(x, y, 4, 0, 2 * Math.PI); ctx.fill(); ctx.fillText(b.id, x + 6, y + 3);
+    ctx.beginPath(); ctx.moveTo(x, y - 5.5); ctx.lineTo(x + 5, y + 4); ctx.lineTo(x - 5, y + 4); ctx.closePath(); ctx.fill();
+    chartText(ctx, b.id, x + 8, y + 4, { px: 10.5, weight: 500, colour: css("--berg") });
   }
   ctx.restore();
-  const [vx, vy] = simMapState.toScreen(...f.position.xy_km);
-  ctx.save();
-  ctx.beginPath(); ctx.arc(vx, vy, 9, 0, 2 * Math.PI); ctx.fillStyle = css("--series-8"); ctx.fill();
-  ctx.lineWidth = 3; ctx.strokeStyle = css("--surface-1"); ctx.stroke();
-  ctx.fillStyle = css("--text-primary"); ctx.font = "bold 12px system-ui, sans-serif"; ctx.fillText("Vessel", vx + 12, vy + 4);
+  const [vx, vy] = simMapState.toScreen(...vessel);
+  ctx.save();                                           // the vessel: a ring around its position, as plotted on a chart
+  ctx.beginPath(); ctx.arc(vx, vy, 11, 0, 2 * Math.PI); ctx.fillStyle = css("--chart-halo"); ctx.fill();
+  ctx.beginPath(); ctx.arc(vx, vy, 9, 0, 2 * Math.PI); ctx.lineWidth = 2.5; ctx.strokeStyle = css("--series-8"); ctx.stroke();
+  ctx.beginPath(); ctx.arc(vx, vy, 3.5, 0, 2 * Math.PI); ctx.fillStyle = css("--series-8"); ctx.fill();
   ctx.restore();
+  chartText(ctx, "Vessel", vx + 14, vy + 21, { px: 13, weight: 600 });
   const key = (colour, text, dashed = false, box = false) => el("span", {}, el("i", box ? { class: "box", style: `background:${colour}` }
     : { style: `border-color:${colour}${dashed ? ";border-top-style:dashed" : ""}` }), text);
   $("#sim-map-legend").replaceChildren(
@@ -2341,7 +2872,10 @@ function showFrame(k) {
   $("#sim-summary").hidden = !last;
   $("#sim-play").textContent = sim.timer ? "⏸ Pause" : last ? "↺ Replay" : "▶ Play";
   $("#sim-play").setAttribute("aria-label", sim.timer ? "Pause" : "Play");
-  drawSimMap();
+  const stepped = sim.shown === sim.i - 1;
+  sim.shown = sim.i;
+  if (stepped) tween("vessel", 800, (v) => { sim.glide = v; drawSimMap(); });
+  else { stopTween("vessel"); sim.glide = 1; drawSimMap(); }
 }
 const m0 = (s) => s.metadata.issue_date;
 
@@ -2432,6 +2966,49 @@ $("#sim-slider").addEventListener("input", () => { simPause(); showFrame(Number(
 $("#sim-retry").addEventListener("click", () => runSimulation());
 $("#pr-simulate").addEventListener("click", openSimulation);
 
+/* ------------------------------------------------------------- theme */
+// Follows the system until the person picks a theme; the choice is kept in this browser.
+const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
+const darkShown = () => (document.documentElement.dataset.theme || (systemDark.matches ? "dark" : "light")) === "dark";
+let redrawAll = () => {};
+function syncThemeToggle() {
+  const label = `Switch to ${darkShown() ? "light" : "dark"} theme`;
+  $("#theme-toggle").setAttribute("aria-label", label);
+  $("#theme-toggle").title = label;
+}
+try {
+  const saved = localStorage.getItem("antroute-theme");
+  if (saved === "dark" || saved === "light") document.documentElement.dataset.theme = saved;
+} catch { /* storage is blocked: the theme simply follows the system */ }
+$("#theme-toggle").addEventListener("click", () => {
+  const to = darkShown() ? "light" : "dark";
+  document.documentElement.dataset.theme = to;
+  try { localStorage.setItem("antroute-theme", to); } catch { /* not kept; still applied to this page */ }
+  syncThemeToggle();
+  redrawAll();
+});
+systemDark.addEventListener("change", syncThemeToggle);
+syncThemeToggle();
+
+/* ------------------------------------------------------------- opening title */
+// The title plays and clears on CSS alone. The script lets a click or a key skip it and removes it afterwards.
+(() => {
+  const intro = $("#intro");
+  if (!intro) return;
+  if (reduceMotion()) { intro.remove(); return; }
+  const leave = () => {
+    if (!intro.isConnected || intro.classList.contains("leaving")) return;
+    intro.classList.add("leaving");
+    setTimeout(() => intro.remove(), 240);
+  };
+  const onKey = () => { window.removeEventListener("keydown", onKey); leave(); };
+  intro.addEventListener("pointerdown", leave);
+  window.addEventListener("keydown", onKey);
+  intro.addEventListener("animationend", (ev) => {
+    if (ev.target === intro && ev.animationName === "intro-done") { window.removeEventListener("keydown", onKey); intro.remove(); }
+  });
+})();
+
 /* ------------------------------------------------------------- boot */
 (async () => {
   try {
@@ -2457,12 +3034,15 @@ $("#pr-simulate").addEventListener("click", openSimulation);
     }
   }
   await productReady;
-  window.addEventListener("resize", () => {
-    if (!$("#tab-product").hidden) { drawProduct(); drawSimMap(); }
+  const redrawDashboard = () => {
+    if (!$("#tab-product").hidden) { drawProduct(); drawPickMap(); drawSimMap(); }
     if (mapState.plan && !$("#tab-plan").hidden) drawMap(mapState.plan);
     if (winState.result && !$("#tab-window").hidden) drawWindow(winState.result, budget());
     if (!$("#tab-real").hidden) redrawReal();
     const tab = currentTab();
     if (isHist(tab)) redrawHist(tab);
-  });
+  };
+  redrawAll = redrawDashboard;
+  window.addEventListener("resize", redrawDashboard);
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawDashboard);
 })();

@@ -124,12 +124,12 @@ The planner's mean predicted P(breach) at departure was 0.3% (95% upper bound 3.
 - **One-call plan (`POST /real/plan`, Real Historical Data):** route, recommended departure, ETA, distance, fuel index, sea-ice / iceberg / combined risk and a daily timeline in one response, with hindsight-forcing disclosure; see [docs/PLAN_API.md](docs/PLAN_API.md).
 - **Voyage simulation (`POST /real/simulate`, Real Historical Data):** the planned voyage sailed day by day through the observed sea ice, with a new real forecast and the existing replanning rules each day, as playback frames; see [docs/SIMULATE_API.md](docs/SIMULATE_API.md).
 - **Additional historical season (Real Historical Data):** the separate OSI-430-a v3.0 2024-25 sea-ice file is listed under `sea_ice_additional` in `config/real_historical.json` (with its 2024-25 ERA5, CMEMS and USNIC files) and appended in memory after the frozen file. The frozen file, checkpoint and calibration are unchanged. 2024-25 is labelled an independent evaluation season.
-- **Web dashboard:** no external dependencies, light/dark, phone-width. Verified in Chromium with Playwright: every tab exercised, no console errors.
+- **Web dashboard:** a chart-style interface with latitude/longitude graticule, scale bar and compass rose. The result page compares the candidate routes on the same scenarios, shows how much of each departure is forecast-supported together with the forecast's trust horizon, and downloads the route as GeoJSON or CSV (each waypoint with expected arrival time, breach probability and fuel index) and the plan as a PDF brief. Every plan is saved, so a recent one reopens without being computed again; with a Supabase project configured the saved plans survive restarts ([setup](docs/DEPLOYMENT.md#14-saved-plans-supabase)). Light and dark themes, phone-width, no external dependencies. Browser-tested with Playwright against a stand-in API: every page exercised, no console errors.
 - **Forecast mode (future dates, e.g. 2026-11-19):** dates after the real archive are planned and simulated as a labelled *Forecast / hackathon estimate* from an analogue season (proxy sea ice and ERA5/CMEMS forcing, latest official USNIC list with calibrated drift). Any other future date (off season or years ahead, e.g. 2027-08-14 or 2030-08-14) gets a *historical seasonal analogue*: real sea ice, winds, currents and icebergs of the same calendar days in earlier years, with the analogue dates and a confidence level recorded. Neither is an operational forecast. See [docs/FORECAST_MODE.md](docs/FORECAST_MODE.md).
 - **PDF voyage brief:** [example](docs/voyage_brief_example.pdf).
 - **Docker image:** built and smoke-tested in CI.
 
-| Departure window | Voyage replanning + audit log |
+| Route comparison, risk and departure window | Voyage simulation |
 |---|---|
 | ![Window](docs/images/dashboard_window.png) | ![Voyage](docs/images/dashboard_voyage.png) |
 
@@ -144,7 +144,7 @@ The planner's mean predicted P(breach) at departure was 0.3% (95% upper bound 3.
 | Icebergs | USNIC weekly lists 2018-2025 | Calibrated drift beats the original physics; coverage near nominal | Only slightly better than "no movement" on position |
 | Frozen demo | Forecast issued 2023-11-14, 200 joint scenarios | Depart 2023-11-14, 37.5 h, fuel index 837.8, 0/200 breaches, Wilson UB 1.88% | One window; 1.88% is the 0-of-200 floor, not skill |
 
-The frozen demo is reproducible: `scripts/reproduce_frozen_demo.py` checks every input checksum, re-runs the planner with real forcing required, and compares the result with [`docs/frozen_demo/frozen_demo_2023-11-14.json`](docs/frozen_demo/frozen_demo_2023-11-14.json). See [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
+The frozen demo is reproducible: `scripts/reproduce_frozen_demo.py` checks every input checksum, re-runs the planner with real forcing required, and compares the result with [`docs/frozen_demo/frozen_demo_2023-11-14.json`](docs/frozen_demo/frozen_demo_2023-11-14.json). The comparison is exact on the platform that produced the pinned result. On another platform or PyTorch build the selected departure, route, breach count and risk bound are the same, but time and fuel can differ in the last floating-point digits, which the script reports as a difference. See [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
 
 **Run the real-data product on your own machine:** [`docs/RUNTIME_SETUP.md`](docs/RUNTIME_SETUP.md) shows how to use the runtime archive (a GitHub Release asset, not in Git). No API keys are needed to run it.
 
@@ -242,7 +242,7 @@ flowchart LR
 | Stage | Status | Module |
 |---|---|---|
 | 1 Scope & config | ✅ Validated config, Wilson scenario-count guard | `config.py` |
-| 2 Ingestion | ✅ Resumable, checksummed, `blocked` on missing credentials; OSI SAF reader (own CRS from CF metadata) + dataset builder · ⏳ not yet run against live services | `ingestion/` |
+| 2 Ingestion | ✅ Resumable, checksummed, `blocked` on missing credentials; OSI SAF reader (own CRS from CF metadata) + dataset builder. The real inputs in use are listed under [Real-data status](#-real-data-status) | `ingestion/` |
 | 3 Harmonisation | ✅ Regridding, vector rotation, area-mean, imputation mask, season-aware climatology | `preprocessing/` |
 | 4 Sea-ice forecast | ✅ Baselines, residual U-Net, per-lead MAE/RMSE/IIEE evaluation, residual-bootstrap ensembles, isotonic calibration | `forecasting/` |
 | 5 Iceberg drift | ✅ RK2 physics with projection scale factor, ensembles, presence layers joined to route risk, learned correction validated on held-out icebergs | `iceberg/drift.py` |
@@ -317,10 +317,10 @@ tests/                      hand-calculated values, behavioural routing worlds, 
 ## 🛣️ Roadmap
 
 1. **Phase 1 ✅** config, ingestion framework, harmonisation, baselines, hazard/fuel, router, departure sweep, exports.
-2. **Phase 2 ✅** OSI SAF reader, residual U-Net vs baselines per lead, calibrated probabilities, iceberg drift ensembles in route risk. *Pending:* first run on real OSI SAF/ERA5/CMEMS data.
+2. **Phase 2 ✅** OSI SAF reader, residual U-Net vs baselines per lead, calibrated probabilities, iceberg drift ensembles in route risk. The runs on real OSI SAF/ERA5/CMEMS data are item 5.
 3. **Phase 3 ✅** U-Net ensembles drive the router, climatology-anomaly scenarios beyond the horizon, trust horizon (season-blocked bootstrap), departure window from one forecast issue, replanning with an audit log, day-by-day replay.
 4. **Phase 4 ✅** replay backtest vs naive and ice-edge-buffer baselines, fuel/speed sensitivity, FastAPI, web dashboard, PDF brief, Docker.
-5. **Real data (in progress):** real OSI SAF sea ice (20 seasons), U-Net trained and evaluated on real seasons, ERA5/CMEMS forcing, USNIC iceberg drift calibrated and confirmed out of sample, frozen real-data demo reproduced byte-for-byte. *Still open:* real-season backtests, verified vessel limits, persistent voyage storage, deployment (see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)).
+5. **Real data (in progress):** real OSI SAF sea ice (20 seasons), U-Net trained and evaluated on real seasons, ERA5/CMEMS forcing, USNIC iceberg drift calibrated and confirmed out of sample, frozen real-data demo reproduced exactly on the reference platform (to about 10 significant digits elsewhere; see [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md)). *Still open:* real-season backtests, verified vessel limits, persistent voyage storage, deployment (see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)).
 
 ## 📚 Related work
 

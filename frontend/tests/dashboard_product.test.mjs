@@ -195,8 +195,10 @@ function makeSim(replan = true) {
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
 
 async function openDashboard(browser, { plan = () => ({ status: 200, body: makePlan() }), historical = "available",
-  simulate = () => ({ status: 200, body: makeSim(true) }), dates = datesPayload, datesFor = null } = {}) {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  simulate = () => ({ status: 200, body: makeSim(true) }), dates = datesPayload, datesFor = null,
+  saved = { storage: "memory", plans: [] }, savedPlan = () => ({ status: 404, body: { detail: { status: "unknown_plan" } } }),
+  brief = () => ({ status: 404 }) } = {}) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   const calls = [];
   const errors = [];
   const jobs = new Map();
@@ -230,6 +232,13 @@ async function openDashboard(browser, { plan = () => ({ status: 200, body: makeP
       if (r.delay) await new Promise((ok) => setTimeout(ok, r.delay));
       return route.fulfill({ status: r.status, contentType: "application/json", body: r.raw ?? JSON.stringify(r.body) });
     }
+    if (p === "/real/plans") return json(typeof saved === "function" ? saved() : saved);
+    if (p.startsWith("/real/plans/") && p.endsWith("/brief")) {
+      const r = brief(p.split("/")[3]);
+      if (r.abort) return route.abort("failed");
+      return route.fulfill({ status: r.status, contentType: "application/pdf", body: r.body ?? "" });
+    }
+    if (p.startsWith("/real/plans/")) { const r = savedPlan(p.split("/")[3]); return json(r.body, r.status); }
     if (p === "/real/simulate") {               // a background job: queued here, done on the first poll
       const r = await simulate(JSON.parse(req.postData() || "{}"));
       if (r.status !== 200) return json(r.body, r.status);
@@ -1049,7 +1058,7 @@ test("a seasonal-analogue estimate discloses the method, analogue date, forcing,
   assert.match(await text(page, "#pr-banners"), /FORECAST \/ HACKATHON ESTIMATE[\s\S]*Historical seasonal analogue/i);
   const how = await text(page, "#pr-howto");
   assert.match(how, /Method Historical seasonal analogue/);
-  assert.match(how, /Analogue date \w+, 14 Aug 2024/);
+  assert.match(how, /Analogue date \w+,? 14 Aug 2024/);
   assert.match(how, /Wind\/current forcing historical reanalysis analogue/);
   assert.match(how, /Iceberg source official USNIC list of [\s\S]*2024 \(the analogue year's list/);
   assert.match(how, /Sea ice real OSI SAF observations of the same calendar days in 2017–2023/);
@@ -1129,7 +1138,7 @@ const SMOKE = process.env.ANTROUTE_SMOKE_URL;
 test("real smoke: Drake Passage to Bransfield Strait, 2023-11-14, reproduces the frozen plan", {
   skip: skip || (SMOKE ? false : "set ANTROUTE_SMOKE_URL to run against a live API with the real archive"), timeout: 240000,
 }, async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   const posts = [];
   page.on("request", (r) => { if (new URL(r.url()).pathname === "/real/plan") posts.push(r.postData()); });
   await page.goto(SMOKE);
@@ -1153,7 +1162,7 @@ test("real smoke: Drake Passage to Bransfield Strait, 2023-11-14, reproduces the
 test("real smoke: Simulate Voyage sails the frozen 2023-11-14 plan with no replan", {
   skip: skip || (SMOKE ? false : "set ANTROUTE_SMOKE_URL to run against a live API with the real archive"), timeout: 480000,
 }, async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   const calls = { plan: 0, simulate: 0 };
   page.on("request", (r) => {
     const p = new URL(r.url()).pathname;
@@ -1183,7 +1192,7 @@ test("real smoke: Simulate Voyage sails the frozen 2023-11-14 plan with no repla
 test("real smoke: a 2024-25 issue date plans and simulates through the normal flow", {
   skip: skip || (SMOKE ? false : "set ANTROUTE_SMOKE_URL to run against a live API with the real archive"), timeout: 480000,
 }, async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   await page.goto(SMOKE);
   await ready(page);
   await page.selectOption("#pr-origin", "drake_passage");
@@ -1207,7 +1216,7 @@ test("real smoke: a 2024-25 issue date plans and simulates through the normal fl
 test("real smoke: a future date (2026-11-19) plans and simulates as a labelled forecast estimate", {
   skip: skip || (SMOKE ? false : "set ANTROUTE_SMOKE_URL to run against a live API with the real archive"), timeout: 480000,
 }, async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   await page.goto(SMOKE);
   await ready(page);
   await page.selectOption("#pr-origin", "drake_passage");
@@ -1234,7 +1243,7 @@ test("real smoke: a future date (2026-11-19) plans and simulates as a labelled f
 test("real smoke: 14 Aug 2027 is accepted as a historical seasonal analogue and says why it is not recommended", {
   skip: skip || (SMOKE ? false : "set ANTROUTE_SMOKE_URL to run against a live API with the real archive"), timeout: 480000,
 }, async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   await page.goto(SMOKE);
   await ready(page);
   await page.selectOption("#pr-origin", "drake_passage");
@@ -1250,7 +1259,7 @@ test("real smoke: 14 Aug 2027 is accepted as a historical seasonal analogue and 
   assert.match(await text(page, "#pr-verdict-badge"), /Not recommended/);
   assert.match(await text(page, "#pr-banners"), /FORECAST \/ HACKATHON ESTIMATE[\s\S]*Historical seasonal analogue/i);
   const how = await text(page, "#pr-howto");
-  assert.match(how, /Analogue date \w+, 14 Aug 2024/);
+  assert.match(how, /Analogue date \w+,? 14 Aug 2024/);
   assert.match(how, /Wind\/current forcing historical reanalysis analogue/);
   assert.match(how, /Iceberg source official USNIC list of \w+, 8 Aug 2024/);
   assert.match(how, /Confidence VERY LOW/);
@@ -1260,7 +1269,7 @@ test("real smoke: 14 Aug 2027 is accepted as a historical seasonal analogue and 
 test("real smoke: 3 Mar 2028 plans and simulates from a historical seasonal analogue", {
   skip: skip || (SMOKE ? false : "set ANTROUTE_SMOKE_URL to run against a live API with the real archive"), timeout: 480000,
 }, async () => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   await page.goto(SMOKE);
   await ready(page);
   await page.selectOption("#pr-origin", "drake_passage");
@@ -1279,4 +1288,382 @@ test("real smoke: 3 Mar 2028 plans and simulates from a historical seasonal anal
   assert.match(await text(page, "#sim-banners"), /FORECAST \/ HACKATHON ESTIMATE/);
   assert.ok(!(await text(page, "#sim-banners")).includes("HISTORICAL MODE"));
   await page.close();
+});
+
+
+// Design regressions: responsive reflow, keyboard navigation and semantic contrast.
+test("planner and confidence views reflow at phone, tablet and desktop widths", { skip }, async () => {
+  const { page, errors } = await openDashboard(browser);
+  await ready(page);
+  for (const width of [320, 375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(80);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `landing overflow at ${width}`);
+    const pick = await page.locator('#pr-pick-origin').boundingBox();
+    assert.ok(pick.height >= 44, `map control target at ${width}`);
+    const map = await page.locator('#pr-pick-map').evaluate(c => ({ buffer: c.width, display: c.clientWidth, dpr: devicePixelRatio }));
+    assert.ok(Math.abs(map.buffer - map.display * map.dpr) <= 2, `map must redraw at ${width}`);
+  }
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.click('#pr-submit');
+  await planned(page);
+  await page.click('.primary-nav [data-view="data"]');
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'confidence overflow on phone');
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("product tabs support arrow keys, Home and End with one keyboard entry point", { skip }, async () => {
+  const { page, errors } = await openDashboard(browser);
+  await ready(page);
+  const first = page.locator('.primary-nav [data-view="plan"]');
+  await first.focus();
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.locator('.primary-nav :focus').getAttribute('data-view'), 'sim');
+  assert.equal(await page.locator('.primary-nav [aria-selected="true"]').getAttribute('data-view'), 'sim');
+  await page.keyboard.press('End');
+  assert.equal(await page.locator('.primary-nav :focus').getAttribute('data-view'), 'data');
+  await page.keyboard.press('Home');
+  assert.equal(await first.getAttribute('aria-selected'), 'true');
+  assert.equal(await page.locator('.primary-nav [tabindex="0"]').count(), 1);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await page.locator('.spinner').first().evaluate(el => getComputedStyle(el).animationName), 'none');
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("text, primary action and data status remain legible in light and dark themes", { skip }, async () => {
+  const { page } = await openDashboard(browser);
+  await ready(page);
+  for (const colorScheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme });
+    await page.waitForTimeout(220);
+    const ratios = await page.evaluate(() => {
+      const lum = rgb => rgb.slice(0,3).map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; })
+        .reduce((sum, v, i) => sum + v * [.2126,.7152,.0722][i], 0);
+      const parse = v => v.match(/[\d.]+/g).map(Number);
+      return ['.pr-form-head .sub', '.pr-lede', '#pr-submit', '#mode-badge'].map(sel => {
+        const el = document.querySelector(sel), c = getComputedStyle(el);
+        let node = el, bg;
+        do { bg = parse(getComputedStyle(node).backgroundColor); node = node.parentElement; }
+        while (bg[3] === 0 && node);
+        const a = lum(parse(c.color)), b = lum(bg);
+        return [sel, (Math.max(a,b) + .05) / (Math.min(a,b) + .05)];
+      });
+    });
+    for (const [sel, ratio] of ratios) assert.ok(ratio >= 4.5, `${colorScheme} ${sel}: ${ratio.toFixed(2)}:1`);
+  }
+  await page.close();
+});
+
+test("the chart graticule uses the grid's EPSG:3031 projection", { skip }, async () => {
+  const { page } = await openDashboard(browser);
+  await ready(page);
+  // a routing cell centre of the real 25 km grid and the position the server reports for it (pyproj)
+  const [x, y] = await page.evaluate(() => PS.forward(-56.3084, -65.90233));
+  assert.ok(Math.abs(x + 3437.5) < 0.05 && Math.abs(y - 1537.5) < 0.05, `forward gave ${x}, ${y} km`);
+  const [lat, lon] = await page.evaluate(() => PS.inverse(-3437.5, 1537.5));
+  assert.ok(Math.abs(lat + 56.3084) < 1e-3 && Math.abs(lon + 65.90233) < 1e-3, `inverse gave ${lat}, ${lon}`);
+  await page.close();
+});
+
+// Motion. The rest of the suite runs with reduced motion; these turn it back on and reload.
+async function withMotion(page) {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.reload();
+}
+
+test("the opening title names the product and team, clears itself, and is skipped by a key", { skip }, async () => {
+  const { page, errors } = await openDashboard(browser);
+  await ready(page);
+  assert.equal(await page.locator("#intro").count(), 0, "no title when reduced motion is asked for");
+  await withMotion(page);
+  assert.match(await page.locator("#intro").textContent(), /Antarctic Routing\s*by Pixel Coders/);
+  assert.ok(await page.locator("#intro").isVisible());
+  await page.waitForSelector("#intro", { state: "detached", timeout: 6000 });   // clears with no input
+  await ready(page);
+  await page.click("#pr-submit");                                                // the app underneath is usable
+  await planned(page);
+  await page.reload();
+  await page.waitForSelector("#intro");
+  await page.keyboard.press("Escape");
+  await page.waitForSelector("#intro", { state: "detached", timeout: 1000 });   // a key skips it
+  await page.reload();
+  await page.waitForSelector("#intro");
+  await page.mouse.click(200, 200);
+  await page.waitForSelector("#intro", { state: "detached", timeout: 1000 });   // so does a click
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a new plan is plotted and a day's sailing is animated, both ending on the exact result", { skip }, async () => {
+  const { page, errors } = await openDashboard(browser);
+  await withMotion(page);
+  await page.waitForSelector("#intro", { state: "detached", timeout: 6000 });
+  await ready(page);
+  await page.click("#pr-submit");
+  await planned(page);
+  await page.waitForFunction(() => prMapState.reveal === 1 && prWinState.grow === 1, null, { timeout: 4000 });
+  assert.deepEqual(await page.evaluate(() => prMapState.plan.candidates[0].xy_km), makePlan().route.xy_km);
+  assert.match(await text(page, "#pr-map-legend"), /Day 1 \(nominal\)/);
+  await page.click("#pr-simulate");
+  await page.waitForSelector("#sim-body:not([hidden])");
+  assert.equal(await page.evaluate(() => sim.glide), 1);
+  await page.click("#sim-next");
+  await page.waitForFunction(() => sim.i === 1 && sim.glide === 1, null, { timeout: 4000 });
+  await page.click("#sim-prev");                                                 // stepping back is immediate
+  assert.deepEqual(await page.evaluate(() => [sim.i, sim.glide]), [0, 1]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("the theme switch overrides the system theme, redraws the chart and is remembered", { skip }, async () => {
+  const { page, errors } = await openDashboard(browser);
+  await ready(page);
+  const pageColour = () => page.evaluate(() => getComputedStyle(document.querySelector(".viz-root")).backgroundColor);
+  const sea = () => page.evaluate(() => { const c = document.querySelector("#pr-pick-map");
+    return [...c.getContext("2d").getImageData(Math.round(c.width / 2), Math.round(c.height / 2), 1, 1).data].join(","); });
+  const light = await pageColour(), lightSea = await sea();
+  assert.equal(await page.getAttribute("#theme-toggle", "aria-label"), "Switch to dark theme");
+  await page.click("#theme-toggle");
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "dark");
+  assert.notEqual(await pageColour(), light);
+  assert.notEqual(await sea(), lightSea, "the chart is redrawn in the new palette");
+  assert.equal(await page.getAttribute("#theme-toggle", "aria-label"), "Switch to light theme");
+  await page.reload();
+  await ready(page);
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "dark", "kept across a reload");
+  await page.click("#theme-toggle");
+  assert.equal(await pageColour(), light);
+  assert.equal(await page.evaluate(() => localStorage.getItem("antroute-theme")), "light");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+/* ------------------------------------------------------------- route comparison, export, forecast support */
+const altRoute = (over) => ({ labels: ["minimum_fuel"], tags: [], feasible: true, n_scenarios: 200, breaches: 2, p_breach: 0.01,
+  p_breach_upper: 0.0311, expected_hours: 30.25, hours_p10: 29.5, hours_p90: 31, expected_fuel: 456.7, distance_km: 123.4,
+  xy_km: makePlan().route.xy_km, latlon: makePlan().route.latlon, segment_breach_prob: [0, 0, 0.01, 0.01], ...over });
+
+test("candidate routes are compared in one table and the alternatives are drawn on the chart", { skip }, async () => {
+  const other = [[37.5, 37.5], [62.5, 62.5], [87.5, 87.5], [112.5, 87.5]];
+  const body = { ...makePlan(), alternatives: [
+    altRoute({ labels: ["minimum_fuel", "risk_weighted_100"], tags: ["lowest_risk", "lowest_fuel_feasible"] }),
+    altRoute({ labels: ["shortest_distance"], tags: [], feasible: false, breaches: 60, p_breach: 0.3, p_breach_upper: 0.3711,
+      expected_hours: 28, distance_km: 110.2, expected_fuel: 430, xy_km: other }) ] };
+  const { page, errors } = await openDashboard(browser, { plan: () => ({ status: 200, body }) });
+  await ready(page);
+  await page.click("#pr-submit");
+  await planned(page);
+  assert.ok(await page.locator("#pr-alts").isVisible());
+  const rows = await page.$$eval("#pr-alts-table tbody tr", (trs) => trs.map((tr) => tr.innerText.replace(/\s+/g, " ").trim()));
+  assert.equal(rows.length, 2);
+  assert.match(rows[0], /^★ lowest risk, lowest fuel within budget ✓ meets budget 123 30\.3 \(29\.5–31\.0\) 457 2 of 200 3\.1%$/);
+  assert.match(rows[1], /^shortest distance ✕ exceeds budget 110 28\.0 .* 430 60 of 200 37\.1%$/);   // untagged: named by its search
+  assert.match(await text(page, "#pr-alts-note"), /3 search strategies gave 2 distinct routes\. Every route is sailed through the same 200 joint scenarios/);
+  const drawn = await page.evaluate(() => prMapState.plan.candidates.map((c) => ({ xy: c.xy_km, feasible: c.feasible })));
+  assert.equal(drawn.length, 2);
+  assert.deepEqual(drawn[0].xy, body.route.xy_km);                 // the chosen route stays first and on top
+  assert.deepEqual(drawn[1], { xy: other, feasible: false });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("with no alternatives in the response the comparison is hidden, never invented", { skip }, async () => {
+  const { page, errors } = await openDashboard(browser);
+  await ready(page);
+  await page.click("#pr-submit");
+  await planned(page);
+  assert.ok(!(await page.locator("#pr-alts").isVisible()));
+  assert.equal(await page.evaluate(() => prMapState.plan.candidates.length), 1);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("the route downloads as GeoJSON and CSV with the plan's own numbers", { skip }, async () => {
+  const base = makePlan();
+  const body = { ...base, route: { ...base.route, waypoint_hours: [0, 6, 18.5, 30.25], segment_fuel_index: [0, 100.25, 150.5, 205.95] },
+    risk: { ...base.risk, combined: { ...base.risk.combined, segment_breach_prob: [0, 0, 0.005, 0.01] } } };
+  const { page, errors } = await openDashboard(browser, { plan: () => ({ status: 200, body }) });
+  await ready(page);
+  await page.click("#pr-submit");
+  await planned(page);
+  const save = async (sel) => {
+    const [download] = await Promise.all([page.waitForEvent("download"), page.click(sel)]);
+    return { name: download.suggestedFilename(), text: readFileSync(await download.path(), "utf8") };
+  };
+  const gj = await save("#pr-export-geojson");
+  assert.equal(gj.name, "route_alpha-point_to_bravo-bay_2023-11-14.geojson");
+  const fc = JSON.parse(gj.text), line = fc.features[0], points = fc.features.slice(1);
+  assert.deepEqual(line.geometry, { type: "LineString", coordinates: body.route.latlon.map(([lat, lon]) => [lon, lat]) });
+  assert.equal(line.properties.disclaimer, "Stand-in disclaimer.");
+  assert.deepEqual([line.properties.departure_utc, line.properties.eta_utc, line.properties.expected_hours, line.properties.distance_km,
+    line.properties.fuel_index_expected, line.properties.p_breach_upper, line.properties.n_scenarios, line.properties.risk_budget,
+    line.properties.data_mode, line.properties.forecast_issue_date, line.properties.software_version],
+  ["2023-11-14T00:00:00Z", "2023-11-15T06:15Z", 30.25, 123.4, 456.7, 0.0311, 200, 0.05, "historical", "2023-11-14", "test"]);
+  assert.equal(points.length, 4);
+  assert.deepEqual(points[2], { type: "Feature", geometry: { type: "Point", coordinates: [-59.5, -60.6] },
+    properties: { waypoint_index: 2, hours_from_departure: 18.5, expected_arrival_utc: "2023-11-14T18:30:00Z",
+      segment_breach_prob: 0.005, segment_fuel_index: 150.5 } });
+  const csv = await save("#pr-export-csv");
+  assert.equal(csv.name, "route_alpha-point_to_bravo-bay_2023-11-14.csv");
+  const lines = csv.text.trimEnd().split("\r\n");
+  assert.equal(lines[0], "waypoint_index,lat,lon,hours_from_departure,expected_arrival_utc,segment_breach_prob,segment_fuel_index,data_mode,forecast_issue_date,disclaimer");
+  assert.equal(lines.length, 5);
+  assert.equal(lines[4], "3,-61,-59,30.25,2023-11-15T06:15:00Z,0.01,205.95,historical,2023-11-14,Stand-in disclaimer.");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("an export from a response without arrival hours or leg fuel leaves them empty, never estimated", { skip }, async () => {
+  const { page, errors } = await openDashboard(browser);
+  await ready(page);
+  await page.click("#pr-submit");
+  await planned(page);
+  const fc = await page.evaluate(() => routeGeoJSON(prod.result));
+  assert.deepEqual(fc.features[1].properties, { waypoint_index: 0, hours_from_departure: null, expected_arrival_utc: null,
+    segment_breach_prob: 0, segment_fuel_index: null });       // the breach probability is in the response; the rest is not
+  assert.match(await page.evaluate(() => routeCSV(prod.result)), /\r\n0,-60,-60,,,0,,historical,2023-11-14,Stand-in disclaimer\.\r\n/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("the departure window says how much is forecast-supported and quotes the forecast's trust", { skip }, async () => {
+  const base = makePlan();
+  const options = base.departure.options.map((o, i) => (i === 2 ? { ...o, support: "climatology-dominated", forecast_fraction: 0.2 } : o));
+  const body = { ...base, departure: { ...base.departure, options },
+    metadata: { ...base.metadata, provenance: { ...base.metadata.provenance,
+      limitations: ["Stand-in limitation one.", "Stand-in: trust horizon 0 days against persistence."] } } };
+  const { page, errors } = await openDashboard(browser, { plan: () => ({ status: 200, body }) });
+  await ready(page);
+  await page.click("#pr-submit");
+  await planned(page);
+  assert.equal(await text(page, "#pr-trust"), "Forecast support. 2 of 3 departure dates are sailed mostly within the forecast; " +
+    "1 lean on climatology beyond it. Forecast trust. Stand-in: trust horizon 0 days against persistence.");
+  assert.match(await text(page, "#pr-window-legend"),
+    /Recommended departure[\s\S]*Meets the budget[\s\S]*Exceeds the budget[\s\S]*Mostly beyond the forecast \(climatology\)/);
+  await page.close();
+  const plain = await openDashboard(browser);                        // no trust statement in the response: none is shown
+  await ready(plain.page);
+  await plain.page.click("#pr-submit");
+  await planned(plain.page);
+  assert.equal(await text(plain.page, "#pr-trust"), "Forecast support. 3 of 3 departure dates are sailed mostly within the forecast.");
+  assert.doesNotMatch(await text(plain.page, "#pr-window-legend"), /climatology/);
+  assert.deepEqual([...errors, ...plain.errors], []);
+  await plain.page.close();
+});
+
+test("a forecast estimate words its support as proxy scenario days, never as a forecast", { skip }, async () => {
+  const { page, errors } = await openDashboard(browser, { dates: fcDates, plan: () => ({ status: 200, body: makeForecastPlan() }) });
+  await ready(page);
+  await page.click("#pr-submit");
+  await planned(page);
+  const note = await text(page, "#pr-trust");
+  assert.match(note, /^Scenario support\. \d+ of \d+ departure dates are sailed mostly within the estimate's scenario days \(proxy inputs, not a forecast\)/);
+  assert.doesNotMatch(note, /Forecast support/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+/* ------------------------------------------------------------- saved plans and the PDF brief */
+const PLAN_ID = "11111111-2222-4333-8444-555555555555";
+const savedRow = (over = {}) => ({ id: PLAN_ID, created_at: "2026-01-01T00:00:00+00:00", origin: "Alpha Point",
+  destination: "Bravo Bay", issue_date: "2023-11-20", mode: "historical", status: "recommended", departure_date: "2023-11-20",
+  p_breach_upper: 0.0311, expected_hours: 30.25, distance_km: 123.4, ...over });
+
+test("recent plans are listed and one opens from the store without planning again", { skip }, async () => {
+  const request = { origin: { preset: PRESETS[1].id }, destination: { lat: -60.5, lon: -61.2 }, issue: "2023-11-20",
+    window_days: 14, include_layers: true };
+  const saved = { storage: "supabase", plans: [savedRow(),
+    savedRow({ id: "99999999-2222-4333-8444-555555555555", status: "no_feasible_departure", p_breach_upper: 0.3711, mode: "forecast" })] };
+  const { page, calls, errors, planCalls } = await openDashboard(browser, { saved,
+    savedPlan: (id) => ({ status: 200, body: { plan_id: id, request, plan: makePlan() } }) });
+  await ready(page);
+  const rows = await page.$$eval("#pr-saved-list button", (b) => b.map((x) => x.innerText.replace(/\s+/g, " ").trim()));
+  assert.deepEqual(rows, ["Alpha Point → Bravo Bay ✓ 3.1% risk bound 2023-11-20 · real historical data",
+    "Alpha Point → Bravo Bay ✕ 37.1% exceeds the budget 2023-11-20 · forecast estimate"]);
+  assert.match(await text(page, "#pr-saved-note"), /^Saved in the project database\./);
+  await page.click("#pr-saved-list li:first-child button");
+  await planned(page);
+  assert.equal(planCalls().length, 0);                                       // shown from the store
+  assert.ok(calls.some((c) => c.path === `/real/plans/${PLAN_ID}`));
+  assert.match(await text(page, "#pr-verdict-title"), /within the 5% risk budget/);
+  // the form now shows the request behind the result, and the simulation is asked for that same request
+  assert.deepEqual(await page.evaluate(() => [document.querySelector("#pr-origin").value, document.querySelector("#pr-destination").value,
+    document.querySelector("#pr-destination-lat").value, document.querySelector("#pr-destination-lon").value,
+    document.querySelector("#pr-issue").value]), [PRESETS[1].id, "__map__", "-60.5", "-61.2", "2023-11-20"]);
+  assert.ok(await page.locator("#pr-export-pdf").isVisible());
+  await page.click("#pr-simulate");
+  await page.waitForFunction(() => !document.querySelector("#sim-body").hidden);
+  const sent = JSON.parse(calls.find((c) => c.path === "/real/simulate").body);
+  assert.deepEqual(sent, { origin: request.origin, destination: request.destination, issue: "2023-11-20", departure: "2023-11-14" });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("with no saved plans the list stays hidden; a plan made now appears in it", { skip }, async () => {
+  let rows = [];
+  const { page, errors } = await openDashboard(browser, { saved: () => ({ storage: "memory", plans: rows }),
+    plan: () => { rows = [savedRow({ issue_date: "2023-11-14" })]; return { status: 200, body: { ...makePlan(), plan_id: PLAN_ID } }; } });
+  await ready(page);
+  assert.ok(await page.locator("#pr-saved").isHidden());
+  await page.click("#pr-submit");
+  await planned(page);
+  await page.waitForFunction(() => document.querySelectorAll("#pr-saved-list button").length === 1);
+  assert.match(await page.locator("#pr-saved-note").textContent(), /^Held by this server until it restarts\./);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a saved plan that is gone or unreadable is reported and nothing is shown", { skip }, async () => {
+  const { page, errors } = await openDashboard(browser, { saved: { storage: "memory", plans: [savedRow()] } });
+  await ready(page);
+  await page.click("#pr-saved-list button");
+  await page.waitForSelector("#pr-error:not([hidden])");
+  assert.ok(await page.locator("#pr-result").isHidden());
+  await page.close();
+  const broken = await openDashboard(browser, { saved: { storage: "memory", plans: [savedRow()] },
+    savedPlan: (id) => ({ status: 200, body: { plan_id: id, request: { issue: "2023-11-20" }, plan: makePlan() } }) });
+  await ready(broken.page);
+  await broken.page.click("#pr-saved-list button");
+  await broken.page.waitForSelector("#pr-error:not([hidden])");
+  assert.equal(await text(broken.page, "#pr-error-title"), "The saved plan could not be read");
+  assert.ok(await broken.page.locator("#pr-result").isHidden());
+  assert.deepEqual([...errors, ...broken.errors], []);
+  await broken.page.close();
+});
+
+test("the PDF brief of the plan on screen downloads from the server", { skip }, async () => {
+  const { page, calls, errors } = await openDashboard(browser, { plan: () => ({ status: 200, body: { ...makePlan(), plan_id: PLAN_ID } }),
+    brief: () => ({ status: 200, body: "%PDF-1.4 stand-in" }) });
+  await ready(page);
+  await page.click("#pr-submit");
+  await planned(page);
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#pr-export-pdf")]);
+  assert.equal(download.suggestedFilename(), "voyage-brief_alpha-point_to_bravo-bay_2023-11-14.pdf");
+  assert.equal(readFileSync(await download.path(), "utf8"), "%PDF-1.4 stand-in");
+  assert.ok(calls.some((c) => c.method === "GET" && c.path === `/real/plans/${PLAN_ID}/brief`));
+  assert.ok(await page.locator("#pr-export-note").isHidden());
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("the PDF button needs a saved plan, and a brief the server cannot give is explained", { skip }, async () => {
+  const plain = await openDashboard(browser);                                // a response without a plan id
+  await ready(plain.page);
+  await plain.page.click("#pr-submit");
+  await planned(plain.page);
+  assert.ok(await plain.page.locator("#pr-export-pdf").isHidden());
+  assert.ok(await plain.page.locator("#pr-export-csv").isVisible());
+  await plain.page.close();
+  const gone = await openDashboard(browser, { plan: () => ({ status: 200, body: { ...makePlan(), plan_id: PLAN_ID } }) });
+  await ready(gone.page);
+  await gone.page.click("#pr-submit");
+  await planned(gone.page);
+  await gone.page.click("#pr-export-pdf");
+  await gone.page.waitForSelector("#pr-export-note:not([hidden])");
+  assert.equal(await text(gone.page, "#pr-export-note"), "The server no longer holds this plan. Plan the route again to download its brief.");
+  assert.ok(await gone.page.locator("#pr-export-pdf").isEnabled());
+  assert.deepEqual([...plain.errors, ...gone.errors], []);
+  await gone.page.close();
 });

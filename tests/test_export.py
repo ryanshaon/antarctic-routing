@@ -48,3 +48,17 @@ def test_csv_export_rows_match_waypoints(tmp_path):
     assert len(rows) == len(result.recommended.route.cells)
     assert {"lat", "lon", "planned_arrival_utc", "segment_breach_prob", "disclaimer"} <= rows[0].keys()
     assert rows[0]["disclaimer"] == DISCLAIMER
+
+
+def test_waypoints_carry_the_fuel_index_of_each_leg_and_it_adds_up():
+    world, result = _plan()
+    rec = result.recommended
+    points = [f["properties"] for f in route_to_geojson(rec, world)["features"] if f["geometry"]["type"] == "Point"]
+    fuel = [p["segment_fuel_index"] for p in points]
+    assert fuel[0] == 0.0 and all(v > 0 for v in fuel[1:])          # nothing is burnt before the first leg
+    assert abs(sum(fuel) - rec.evaluation.expected_fuel) < 0.01 * len(fuel)
+    hours = rec.evaluation.waypoint_hours
+    assert hours[0] == 0.0 and hours == sorted(hours)
+    assert abs(hours[-1] - rec.evaluation.expected_hours) < 1e-9
+    assert not {"segment_fuel", "waypoint_hours"} & rec.evaluation.summary().keys()   # summaries are unchanged
+
