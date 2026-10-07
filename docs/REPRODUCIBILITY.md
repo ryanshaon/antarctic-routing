@@ -61,9 +61,9 @@ the bundle loader's checksum check rejects such a bundle rather than serving it.
 
 The canonical checksum is taken with file paths reduced to file names, so it is the same on any machine. When the
 data root is the original `/mnt/project-files/real-data`, the file is also byte-identical to the original run
-(`0d6ef85abec8e170…`). `departure_window.png` is byte-identical too, but only on a store that keeps bytes: the
-project's shared file folder adds a C2PA content-credentials chunk to PNG files, so compare a copy taken from
-there after removing that chunk. Other matplotlib or libpng versions can also change the PNG bytes.
+(`0d6ef85abec8e170…`). `departure_window.png` is not compared byte for byte: a regenerated figure shows the same
+values, but its bytes depend on the matplotlib and libpng versions and on the figure style, which now follows the
+dashboard's chart palette (the pinned bundle keeps the figure of the original run).
 
 **Other platforms.** The pinned values come from a Linux run. On Windows with Python 3.12 and PyTorch 2.14 (CPU) the same
 inputs give the same selected departure, the same 36-cell route, 0 of 200 breaches and the same Wilson bound, but the

@@ -36,20 +36,20 @@ On this synthetic backtest it had no breaches, like the conservative buffer rule
 
 ## 📸 Demo (controlled-synthetic data)
 
-**Departure-window planner.** The ice edge retreats through December. Dates before 20 Dec fail the 5% budget (red), and the planner selects the **earliest date whose Wilson upper bound passes** (green line).
+**Departure-window planner.** The ice edge retreats through December. Departures up to 20 Dec exceed the 5% budget (hatched red), and the planner selects **23 Dec, the first date whose Wilson upper bound passes** (magenta). Shown in the dashboard's synthetic planner: every third day, 200 scenarios, 25 km grid.
 
 ![Departure window](docs/images/departure_chart.png)
 
-| Feasible departure (20 Dec) | Infeasible departure (8 Dec) |
+| Feasible departure (23 Dec) | Infeasible departure (8 Dec) |
 |---|---|
 | ![Route map](docs/images/route_map.png) | ![Infeasible](docs/images/route_map_infeasible.png) |
-| Recommended route (red), P(breach) 1.5%, 95% upper bound 4.3% ≤ 5% | All candidates 40% - the **destination itself** is iced; no route can help, so the planner says so |
+| Recommended route (green): 0 of 200 scenarios breach, 95% upper bound 1.9% ≤ 5% | Every candidate breaches in 40.5% of scenarios (dashed) - the **destination itself** is iced; no route can help, so the planner says so |
 
-**Iceberg avoidance.** A tracked berg (purple, drift-ensemble presence) sits on the direct line. The shortest route breaches in 100% of scenarios; the recommended route detours 23 km (+1.1 h) to P(breach) 1.5% (UB 4.3%).
+**Iceberg avoidance.** A tracked berg (purple, drift-ensemble presence) sits on the direct line. The shortest route breaches in 100% of scenarios; the recommended route detours 19 km (+0.8 h) and breaches in none (upper bound 1.9%).
 
 ![Iceberg detour](docs/images/route_map_iceberg.png)
 
-Background: probability that ice concentration exceeds the vessel limit. Geography is a **schematic** Drake Passage → Bransfield Strait world (Tierra del Fuego, South Shetland Islands, Antarctic Peninsula), not a navigational coastline.
+The three maps are the dashboard's synthetic planner on the 10 km grid (200 scenarios). Background: probability that ice concentration exceeds the vessel limit. Geography is a **schematic** Drake Passage → Bransfield Strait world (Tierra del Fuego, South Shetland Islands, Antarctic Peninsula), not a navigational coastline.
 
 ---
 
@@ -69,7 +69,7 @@ MAE of concentration fraction on identical samples and ocean cells. The **direct
 
 ![Reliability](docs/images/reliability.png)
 
-**Probabilities.** Members = forecast + whole historical error fields from training seasons, so they are coherent joint scenarios. The raw ensemble is **over-confident** (grey). Per-lead isotonic calibration fitted on validation seasons puts it on the diagonal (red) and lowers the Brier score at every lead on the test seasons. Brier skill vs climatology: 0.79 (1 d) to 0.38 (7 d).
+**Probabilities.** Members = forecast + whole historical error fields from training seasons, so they are coherent joint scenarios. The raw ensemble is **over-confident** (grey, dashed). Per-lead isotonic calibration fitted on validation seasons puts it on the diagonal (magenta) and lowers the Brier score at every lead on the test seasons. Brier skill vs climatology: 0.79 (1 d) to 0.38 (7 d).
 
 ---
 
@@ -182,7 +182,7 @@ antroute train-forecast --data data/processed/sea_ice.nc --n-val 1 --n-test 1
 
 # Phase 4: validation and product
 antroute backtest $S --weights models/unet14/best.pt --window-days 7 --members 120
-antroute sensitivity --departure 2026-12-17
+antroute sensitivity --departure 2026-12-20
 antroute brief --departure 2026-12-24 --out reports/voyage_brief.pdf
 pip install -e ".[api]" && antroute serve        # dashboard: http://127.0.0.1:8000  API docs: /docs
 
